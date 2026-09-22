@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>EndoQuest: The Root Canal Run</title>
+
+  <!-- PWA & Apple Mobile Tags -->
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="theme-color" content="#0B111E" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="EndoQuest" />
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app-container">
+
+    <!-- 1. MAIN MENU SCREEN -->
+    <div id="screen-menu" class="app-screen">
+      <div>
+        <div class="hero-icon">🦷</div>
+        <h1 class="title-primary">EndoQuest</h1>
+        <div class="title-subtitle">THE ROOT CANAL RUN</div>
+      </div>
+
+      <div class="hero-card">
+        🌟 <strong>An Interactive 3D Educational Endodontic Adventure</strong><br/>
+        for Dental Professionals & Students
+      </div>
+
+      <div class="menu-buttons">
+        <button id="btn-play-story" class="btn-primary">Play Story & Runner 🏃‍♂️💨</button>
+        <button id="btn-how-to-play" class="btn-secondary">How to Play 🎮</button>
+        <button id="btn-guide" class="btn-secondary">Clinical Endodontics Guide 📚</button>
+      </div>
+    </div>
+
+    <!-- 2. CINEMATIC OPENING STORY SCREEN (8 SCENES) -->
+    <div id="screen-story" class="app-screen hidden">
+      <div class="story-header">
+        <div id="story-scene-tag" class="story-tag">SCENE 1: CLINIC EXTERIOR</div>
+        <div id="story-scene-title" class="story-title">Radiant Smile Dental Clinic</div>
+      </div>
+
+      <div class="story-canvas-box">
+        <canvas id="story-canvas"></canvas>
+      </div>
+
+      <div class="story-dialogue-card">
+        <div id="story-speaker" class="story-speaker">Narrator</div>
+        <div id="story-dialogue" class="story-dialogue">"A peaceful morning in the city..."</div>
+        <div id="story-description" class="story-desc">Modern glass facade gleams in the light.</div>
+      </div>
+
+      <div class="story-actions">
+        <button id="btn-story-skip" class="btn-secondary" style="flex: 1;">Skip ⏭️</button>
+        <button id="btn-story-next" class="btn-primary" style="flex: 2;">Next Scene ➡️</button>
+      </div>
+    </div>
+
+    <!-- 3. 3D TOOTH RUNNER SCREEN -->
+    <div id="screen-runner" class="app-screen hidden">
+      <!-- HUD Top Bar -->
+      <div class="runner-hud">
+        <div class="hud-item">
+          <span class="hud-label">Collected Funds ($25 Coins)</span>
+          <span id="hud-money" class="hud-val">$0</span>
+          <span id="hud-coins" style="font-size: 11px; color: #B0BEC5;">(0 coins)</span>
+        </div>
+        <div class="hud-item" style="text-align: right;">
+          <span class="hud-label">RCT Cost Target</span>
+          <span class="hud-target">$5,000</span>
+        </div>
+        <button id="btn-toggle-audio" class="hud-audio-btn" title="Toggle Sound">🔊</button>
+      </div>
+
+      <!-- 3D Highway Canvas -->
+      <canvas id="runner-canvas"></canvas>
+
+      <!-- Persistent Clinic Entry Button (Visible at $5k) -->
+      <div id="btn-persistent-clinic" class="hidden" style="position: absolute; bottom: 110px; left: 12px; right: 12px; z-index: 25;">
+        <button class="btn-green" style="width: 100%; padding: 14px; font-size: 14px;">
+          🏥 Return to Clinic & Begin Simulation ($5,000 Collected) ➡️
+        </button>
+      </div>
+
+      <!-- Runner Controls & Testing Cheats -->
+      <div class="runner-bottom-bar">
+        <!-- Testing Triggers Row -->
+        <div class="runner-cheats-row">
+          <button id="btn-cheat-500" class="btn-cheat cheat-red">+$500 🚨</button>
+          <button id="btn-clinic-direct" class="btn-cheat cheat-green hidden">Clinic 🏥</button>
+          <button id="btn-cheat-5k" class="btn-cheat cheat-cyan">+$5k 🪙</button>
+        </div>
+
+        <!-- On-Screen Touch Controls (Accessibility for Mobile) -->
+        <div class="touch-controls-row">
+          <button id="ctrl-left" class="touch-btn">⬅️</button>
+          <button id="ctrl-jump" class="touch-btn">⬆️ JUMP</button>
+          <button id="ctrl-slide" class="touch-btn">⬇️ SLIDE</button>
+          <button id="ctrl-right" class="touch-btn">➡️</button>
+        </div>
+      </div>
+
+      <!-- CHECKPOINT MODAL: 4th-Year BDS Question Bank -->
+      <div id="modal-checkpoint" class="modal-overlay hidden">
+        <div class="modal-card">
+          <div class="modal-header">
+            <div class="modal-icon">🚨👮‍♂️</div>
+            <div>
+              <div class="modal-title">DENTAL HIGHWAY PATROL</div>
+              <div class="modal-subtitle">Officer Floss: "Halt! Endodontic Road Inspection!"</div>
+            </div>
+          </div>
+
+          <div style="font-size: 11px; color: var(--primary-cyan); font-weight: 700;" id="checkpoint-category">
+            Instrumentation Objectives
+          </div>
+
+          <div id="checkpoint-question-text" style="font-size: 14px; font-weight: 700; line-height: 1.4;">
+            The primary objective of root canal instrumentation is to:
+          </div>
+
+          <div id="checkpoint-options-container" class="quiz-options-list">
+            <!-- Dynamic Options (A–D Shuffled) -->
+          </div>
+
+          <div id="checkpoint-feedback-container" class="feedback-card hidden">
+            <!-- Feedback Text -->
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <button id="btn-try-question-again" class="btn-gold hidden">🔄 Try Question Again</button>
+            <button id="btn-resume-runner" class="btn-green hidden">Officer Salutes: Resume 3D Runner! 🏃‍♂️💨</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- $5,000 GOAL CELEBRATION MODAL -->
+      <div id="modal-celebration" class="modal-overlay hidden">
+        <div class="modal-card" style="text-align: center;">
+          <div style="font-size: 48px;">👨‍⚕️🎉✨</div>
+          <div style="font-size: 18px; font-weight: 900; color: var(--primary-gold); letter-spacing: 1px;">
+            DR. SMILE CONGRATULATES YOU!
+          </div>
+          <div style="font-size: 14px; font-weight: 800; color: var(--primary-cyan);">
+            🌟 $5,000 RCT Target Achieved! 🌟
+          </div>
+
+          <div style="font-size: 13px; line-height: 1.6; color: #ECEFF1; margin: 6px 0;">
+            "Magnificent work, Alex! You successfully collected the full $5,000 for your Root Canal Treatment."<br/><br/>
+            Entering Radiant Smile Dental Clinic to begin your 3-Stage Endodontic Simulation!
+          </div>
+
+          <div id="celebration-countdown" style="font-size: 12px; font-weight: 700; color: #FFE082;">
+            ⏳ Automatically entering clinic in 3s...
+          </div>
+
+          <button id="btn-enter-clinic-now" class="btn-primary" style="margin-top: 10px;">
+            Enter Dental Clinic Now 🏥 ➡️
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. RADIANT SMILE CLINIC ARRIVAL SCREEN -->
+    <div id="screen-rct-intro" class="app-screen hidden" style="text-align: center; justify-content: space-around;">
+      <div style="font-size: 64px; margin-top: 20px;">🏥👨‍⚕️🦷</div>
+      
+      <div>
+        <h2 style="font-size: 26px; font-weight: 900; color: var(--primary-cyan);">
+          Back at Radiant Smile Clinic!
+        </h2>
+
+        <div class="hero-card" style="margin: 20px auto;">
+          <div style="font-size: 16px; font-weight: 800; color: var(--primary-gold); margin-bottom: 8px;">
+            🪙 Funds Collected: <span id="clinic-funds-collected">$5000</span>!
+          </div>
+          "Incredible work, Alex!" says Dr. Smile warmly. "You sprinted through the city and collected the full $5,000 for your Root Canal Treatment! Now, relax in the chair as we perform the 3 clinical stages to save your tooth!"
+        </div>
+      </div>
+
+      <button id="btn-start-rct-stages" class="btn-primary" style="width: 100%;">
+        Begin Clinical RCT Stages ➡️
+      </button>
+    </div>
+
+    <!-- 5. 3-STAGE CLINICAL ENDODONTIC SIMULATION SCREEN -->
+    <div id="screen-rct-stage" class="app-screen hidden">
+      <div class="sim-header">
+        <span id="sim-stage-counter" style="font-size: 12px; font-weight: 900; color: var(--primary-cyan); letter-spacing: 1px;">
+          RCT STAGE 1 OF 3
+        </span>
+        <div class="step-pills">
+          <span id="pill-step-1" class="step-pill active">1. Step Question</span>
+          <span id="pill-step-2" class="step-pill">2. Procedure Slider</span>
+        </div>
+      </div>
+
+      <h2 id="sim-stage-title" style="font-size: 18px; font-weight: 800; text-align: center; margin-top: 4px;">
+        The Pulp Chamber (Tissue & Smear Layer)
+      </h2>
+
+      <!-- Step 1: Question & Theory Card -->
+      <div id="sim-quiz-card" class="modal-card" style="margin-top: 6px;">
+        <div style="font-size: 12px; font-weight: 800; color: #80DEEA;">
+          🩺 Clinical Procedure Task Question
+        </div>
+
+        <p id="sim-edu-desc" style="font-size: 12px; line-height: 1.5; color: #CFD8DC;">
+          During chemo-mechanical debridement, tissue dissolution and smear layer removal are paramount...
+        </p>
+
+        <div id="sim-question-text" style="font-size: 14px; font-weight: 700;">
+          Why does EDTA need to follow NaOCl rather than replace it entirely?
+        </div>
+
+        <div id="sim-quiz-options" class="quiz-options-list">
+          <!-- Procedural Options -->
+        </div>
+
+        <div id="sim-quiz-feedback" class="feedback-card hidden">
+          <!-- Feedback -->
+        </div>
+
+        <button id="btn-sim-to-slider" class="btn-primary" disabled style="margin-top: 10px;">
+          Proceed to Procedure Slider ⚙️
+        </button>
+      </div>
+
+      <!-- Step 2: Synchronized Procedure Slider & Canvas Simulation -->
+      <div id="sim-slider-card" class="modal-card hidden">
+        <div style="text-align: center;">
+          <div style="font-size: 16px; font-weight: 800; color: var(--primary-cyan);">
+            ⚙️ Slide to Perform Clinical Procedure
+          </div>
+          <div id="sim-slider-subtitle" style="font-size: 12px; color: var(--text-dim); margin-top: 2px;">
+            Chemomechanical Debridement
+          </div>
+        </div>
+
+        <div class="sim-canvas-box">
+          <canvas id="sim-canvas"></canvas>
+        </div>
+
+        <div class="slider-container">
+          <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 700;">
+            <span>Procedure Progress</span>
+            <span id="sim-slider-percent" style="color: var(--primary-gold);">0%</span>
+          </div>
+
+          <input type="range" id="sim-procedure-slider" min="0" max="100" value="0" />
+
+          <div id="sim-slider-status" class="slider-status">
+            👉 Slide the slider up to 100% to complete this step
+          </div>
+        </div>
+
+        <button id="btn-advance-sim-stage" class="btn-green" disabled style="margin-top: 10px;">
+          Advance to Next Stage ➡️
+        </button>
+      </div>
+    </div>
+
+    <!-- 6. FINAL RESULTS & BDS CERTIFICATE SCREEN -->
+    <div id="screen-results" class="app-screen hidden">
+      <div style="font-size: 64px;">🏆🎉🦷</div>
+      
+      <div class="cert-card">
+        <div style="font-size: 13px; font-weight: 800; color: var(--primary-gold); letter-spacing: 2px;">
+          CLINICAL COMPETENCY CERTIFICATE
+        </div>
+        <h2 style="font-size: 22px; font-weight: 900; color: #FFFFFF;">
+          Endodontic Treatment Completed!
+        </h2>
+        <p style="font-size: 13px; color: #B0BEC5;">
+          Alex's irreversible pulpitis has been thoroughly debrided, shaped, disinfected, and obturated with a hermetic coronal seal!
+        </p>
+
+        <div style="display: flex; justify-content: space-around; margin-top: 10px;">
+          <div>
+            <div style="font-size: 11px; color: var(--text-dim);">Funds Collected</div>
+            <div id="res-money" style="font-size: 18px; font-weight: 900; color: var(--primary-gold);">$5050</div>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: var(--text-dim);">Clinical Accuracy</div>
+            <div id="res-accuracy" style="font-size: 18px; font-weight: 900; color: var(--success-green);">100%</div>
+          </div>
+        </div>
+
+        <div style="background: rgba(0, 229, 255, 0.1); border-radius: 12px; padding: 10px; margin-top: 6px;">
+          <div style="font-size: 11px; color: var(--text-dim);">BDS Assessment Grade</div>
+          <div id="res-grade" style="font-size: 15px; font-weight: 800; color: var(--primary-cyan);">
+            Distinction (4th-Year BDS)
+          </div>
+        </div>
+      </div>
+
+      <button id="btn-play-again" class="btn-primary" style="width: 100%;">
+        Play Again 🔄
+      </button>
+    </div>
+
+    <!-- 7. HOW TO PLAY SCREEN -->
+    <div id="screen-instructions" class="app-screen hidden" style="gap: 14px;">
+      <h2 style="font-size: 24px; font-weight: 900; color: var(--primary-cyan); text-align: center;">
+        🎮 How to Play
+      </h2>
+
+      <div class="hero-card">
+        <h3 style="color: var(--primary-gold); margin-bottom: 6px;">🏃 Controls</h3>
+        <p><strong>Mobile Touch:</strong> Swipe Left / Right to change lanes. Swipe Up to JUMP over instrument trays. Swipe Down to SLIDE under surgical lamps.</p>
+        <p style="margin-top: 6px;"><strong>Desktop Keyboard:</strong> Use Arrow Keys (←, →, ↑, ↓) or A, D, W, S. Press Spacebar to Jump.</p>
+      </div>
+
+      <div class="hero-card">
+        <h3 style="color: var(--primary-gold); margin-bottom: 6px;">🪙 $25 Golden Coins & $5,000 Target</h3>
+        <p>Collect 200 spinning gold coins to reach the $5,000 RCT treatment goal. Dodge mobile carts and tooth barriers!</p>
+      </div>
+
+      <div class="hero-card">
+        <h3 style="color: var(--primary-gold); margin-bottom: 6px;">🚨 Dental Highway Patrol</h3>
+        <p>At $500, Officer Floss inspects your clinical knowledge with 4th-Year BDS Endodontics MCQs. Answer correctly to earn +$50 and resume!</p>
+      </div>
+
+      <button id="btn-menu-from-instructions" class="btn-secondary" style="width: 100%; margin-top: auto;">
+        Back to Menu ⬅️
+      </button>
+    </div>
+
+    <!-- 8. CLINICAL GUIDE SCREEN -->
+    <div id="screen-guide" class="app-screen hidden" style="gap: 14px;">
+      <h2 style="font-size: 24px; font-weight: 900; color: var(--primary-cyan); text-align: center;">
+        📚 Clinical Endodontics Guide
+      </h2>
+
+      <div class="hero-card">
+        <h3 style="color: #80DEEA;">Stage 1: Pulp Chamber</h3>
+        <p><strong>Sodium Hypochlorite (NaOCl 2.5-5.25%):</strong> Dissolves organic pulp tissue.</p>
+        <p><strong>17% EDTA:</strong> Demineralizes the inorganic smear layer.</p>
+      </div>
+
+      <div class="hero-card">
+        <h3 style="color: #80DEEA;">Stage 2: Apical Danger Zone</h3>
+        <p><strong>Chemical Safety:</strong> Never mix NaOCl with Chlorhexidine to avoid toxic Para-chloroaniline (PCA) precipitate.</p>
+        <p><strong>Side-Vented Needle:</strong> Position 2-3mm short of working length.</p>
+      </div>
+
+      <div class="hero-card">
+        <h3 style="color: #80DEEA;">Stage 3: Medicaments</h3>
+        <p><strong>Calcium Hydroxide [Ca(OH)₂]:</strong> High pH ~12.5 releases hydroxyl ions to destroy bacterial membranes.</p>
+      </div>
+
+      <button id="btn-menu-from-guide" class="btn-secondary" style="width: 100%; margin-top: auto;">
+        Back to Menu ⬅️
+      </button>
+    </div>
+
+  </div>
+
+  <!-- Scripts in dependency order -->
+  <script src="./js/data.js"></script>
+  <script src="./js/audio.js"></script>
+  <script src="./js/canvas.js"></script>
+  <script src="./js/runner.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>
