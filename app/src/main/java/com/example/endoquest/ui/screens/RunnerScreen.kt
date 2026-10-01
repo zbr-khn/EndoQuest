@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -85,11 +86,18 @@ fun RunnerScreen(
         }
     }
 
-    // Slide auto-reset timer (crouch gets back up after 750ms automatically)
+    // Acrobatic rolling animation state (720-degree forward somersault tumble over 750ms)
+    val rollAnim = remember { Animatable(0f) }
     LaunchedEffect(viewModel.isSliding) {
         if (viewModel.isSliding) {
-            delay(750)
+            rollAnim.snapTo(0f)
+            rollAnim.animateTo(
+                targetValue = 720f,
+                animationSpec = tween(durationMillis = 750, easing = LinearEasing)
+            )
             viewModel.resetActionState()
+        } else {
+            rollAnim.snapTo(0f)
         }
     }
 
@@ -143,6 +151,8 @@ fun RunnerScreen(
 
     var isGameOverTriggered by remember { mutableStateOf(false) }
     var dragTriggered by remember { mutableStateOf(false) }
+    var accumulatedDragX by remember { mutableStateOf(0f) }
+    var accumulatedDragY by remember { mutableStateOf(0f) }
 
     // Guaranteed obstacle queue ensuring all 3 types appear in every run with natural order variation
     val guaranteedObstacleQueue = remember { mutableListOf<ObstacleType>() }
@@ -383,28 +393,37 @@ fun RunnerScreen(
             .statusBarsPadding()
             .pointerInput(Unit) {
                 detectDragGestures(
-                    onDragStart = { dragTriggered = false },
+                    onDragStart = {
+                        dragTriggered = false
+                        accumulatedDragX = 0f
+                        accumulatedDragY = 0f
+                    },
                     onDragEnd = { dragTriggered = false },
                     onDragCancel = { dragTriggered = false },
                     onDrag = { change, dragAmount ->
                         if (!dragTriggered) {
-                            change.consume()
-                            val (dx, dy) = dragAmount
-                            if (abs(dx) > abs(dy)) {
-                                if (dx > 25) {
+                            accumulatedDragX += dragAmount.x
+                            accumulatedDragY += dragAmount.y
+                            val threshold = 30f
+                            if (abs(accumulatedDragX) > abs(accumulatedDragY)) {
+                                if (accumulatedDragX > threshold) {
                                     viewModel.moveRight()
                                     dragTriggered = true
-                                } else if (dx < -25) {
+                                    change.consume()
+                                } else if (accumulatedDragX < -threshold) {
                                     viewModel.moveLeft()
                                     dragTriggered = true
+                                    change.consume()
                                 }
                             } else {
-                                if (dy < -25) {
+                                if (accumulatedDragY < -threshold) {
                                     viewModel.jump()
                                     dragTriggered = true
-                                } else if (dy > 25) {
+                                    change.consume()
+                                } else if (accumulatedDragY > threshold) {
                                     viewModel.slide()
                                     dragTriggered = true
+                                    change.consume()
                                 }
                             }
                         }
@@ -647,15 +666,20 @@ fun RunnerScreen(
 
                         // Ground shadow
                         val shadowScale = (1f - jumpAnim.value * 0.45f) * s
-                        val shadowY = horizonY + (bottomY - horizonY) * playerDepth + (if (viewModel.isSliding) 5f * s else 18f * s)
-                        drawOval(Color.Black.copy(alpha = 0.4f), Offset(playerX - 32f * shadowScale, shadowY - 9f * shadowScale), Size(64f * shadowScale, 18f * shadowScale))
+                        val shadowY = horizonY + (bottomY - horizonY) * playerDepth + (if (viewModel.isSliding) 12f * s else 18f * s)
+                        drawOval(
+                            Color.Black.copy(alpha = 0.42f),
+                            Offset(playerX - (if (viewModel.isSliding) 24f else 30f) * shadowScale, shadowY - 8f * shadowScale),
+                            Size((if (viewModel.isSliding) 48f else 60f) * shadowScale, 16f * shadowScale)
+                        )
 
                         drawAlexPlayerCharacter(
                             center = Offset(playerX, playerY),
                             frame = runFrame,
                             isJumping = viewModel.isJumping || jumpAnim.value > 0.05f,
                             isSliding = viewModel.isSliding,
-                            scale = s * 1.4f
+                            rollAngle = rollAnim.value,
+                            scale = s * 1.12f
                         )
                     }
 
@@ -983,23 +1007,23 @@ fun DrawScope.drawDentalObstacle(
         }
 
         ObstacleType.DECAYED_TOOTH -> {
-            // Enlarged cartoon-style decayed tooth with wide and tall U-shaped root arch for clear sliding
-            val obsW = (112f * scale).toInt().coerceAtLeast(1)
+            // Massive cartoon-style decayed tooth with towering crown and cavernous U-shaped root arch for clear somersault rolling
+            val obsW = (165f * scale).toInt().coerceAtLeast(1)
             val obsH = (obsW * 600 / 492).coerceAtLeast(1)
-            val groundY = center.y + 14f * scale
+            val groundY = center.y + 16f * scale
             val left = (center.x - obsW / 2f).toInt()
             val top = (groundY - obsH).toInt()
 
             // Dual root tip drop shadows on asphalt
             drawOval(
-                color = Color.Black.copy(alpha = 0.35f),
-                topLeft = Offset(center.x - obsW * 0.42f, groundY - 3f * scale),
-                size = Size(obsW * 0.30f, 7f * scale)
+                color = Color.Black.copy(alpha = 0.40f),
+                topLeft = Offset(center.x - obsW * 0.46f, groundY - 4f * scale),
+                size = Size(obsW * 0.34f, 8f * scale)
             )
             drawOval(
-                color = Color.Black.copy(alpha = 0.35f),
-                topLeft = Offset(center.x + obsW * 0.12f, groundY - 3f * scale),
-                size = Size(obsW * 0.30f, 7f * scale)
+                color = Color.Black.copy(alpha = 0.40f),
+                topLeft = Offset(center.x + obsW * 0.12f, groundY - 4f * scale),
+                size = Size(obsW * 0.34f, 8f * scale)
             )
 
             drawImage(
@@ -1175,12 +1199,14 @@ fun DrawScope.drawDentalPoliceOfficer(
 
 /**
  * Renders prominent protagonist Alex with dynamic running animation frames, teal scrubs, hair, and stethoscope.
+ * When sliding/rolling (isSliding = true), Alex executes an athletic forward somersault roll directly underneath obstacles.
  */
 fun DrawScope.drawAlexPlayerCharacter(
     center: Offset,
     frame: Int,
     isJumping: Boolean,
     isSliding: Boolean,
+    rollAngle: Float = 0f,
     scale: Float = 1f
 ) {
     val skinColor = Color(0xFFFFCC80)
@@ -1190,94 +1216,199 @@ fun DrawScope.drawAlexPlayerCharacter(
     val shoeWhite = Color(0xFFFAFAFA)
     val shoeSole = Color(0xFF0288D1)
 
-    val ySlideOffset = if (isSliding) 25f * scale else 0f
-    val headCenter = Offset(center.x, center.y - 78f * scale + ySlideOffset)
-    val torsoTop = center.y - 48f * scale + ySlideOffset
-
-    // 1. HEAD & FACE
-    drawRoundRect(
-        color = hairColor,
-        topLeft = Offset(headCenter.x - 22f * scale, headCenter.y - 28f * scale),
-        size = Size(44f * scale, 32f * scale),
-        cornerRadius = CornerRadius(14f * scale, 14f * scale)
-    )
-    drawCircle(color = skinColor, radius = 20f * scale, center = headCenter)
-    drawCircle(color = Color.Black, radius = 2.8f * scale, center = Offset(headCenter.x - 6f * scale, headCenter.y - 2f * scale))
-    drawCircle(color = Color.Black, radius = 2.8f * scale, center = Offset(headCenter.x + 6f * scale, headCenter.y - 2f * scale))
-    drawLine(Color(0xFF3E2723), Offset(headCenter.x - 9f * scale, headCenter.y - 8f * scale), Offset(headCenter.x - 3f * scale, headCenter.y - 6f * scale), strokeWidth = 2f * scale)
-    drawLine(Color(0xFF3E2723), Offset(headCenter.x + 3f * scale, headCenter.y - 6f * scale), Offset(headCenter.x + 9f * scale, headCenter.y - 8f * scale), strokeWidth = 2f * scale)
-    drawLine(Color(0xFFB71C1C), Offset(headCenter.x - 4f * scale, headCenter.y + 8f * scale), Offset(headCenter.x + 4f * scale, headCenter.y + 8f * scale), strokeWidth = 2.5f * scale)
-
-    // 2. TORSO (Teal scrubs with stethoscope & hospital badge)
-    val torsoHeight = if (isSliding) 32f * scale else 62f * scale
-    drawRoundRect(
-        color = scrubTeal,
-        topLeft = Offset(center.x - 20f * scale, torsoTop),
-        size = Size(40f * scale, torsoHeight),
-        cornerRadius = CornerRadius(8f * scale, 8f * scale)
-    )
-    val vNeck = Path().apply {
-        moveTo(center.x - 8f * scale, torsoTop)
-        lineTo(center.x, torsoTop + 14f * scale)
-        lineTo(center.x + 8f * scale, torsoTop)
-    }
-    drawPath(vNeck, color = skinColor)
-
-    // Stethoscope tubing around neck
-    drawPath(Path().apply {
-        moveTo(headCenter.x - 10f * scale, headCenter.y + 16f * scale)
-        quadraticTo(center.x, torsoTop + 10f * scale, center.x + 10f * scale, headCenter.y + 16f * scale)
-    }, color = Color(0xFFB0BEC5), style = Stroke(width = 3.5f * scale, cap = StrokeCap.Round))
-
-    // Hospital ID Badge
-    drawRect(Color.White, Offset(center.x - 14f * scale, torsoTop + 16f * scale), Size(9f * scale, 12f * scale))
-    drawCircle(Color(0xFF0288D1), radius = 2f * scale, center = Offset(center.x - 9.5f * scale, torsoTop + 20f * scale))
-
-    // 3. ARMS & HANDS (Swinging animation frames 0..3)
-    val armSwing = (when {
-        isJumping -> -24f
-        isSliding -> 28f
-        else -> when (frame) {
-            0 -> 18f
-            1 -> 6f
-            2 -> -18f
-            else -> -6f
-        }
-    }) * scale
-
-    // Left Arm
-    drawLine(
-        color = scrubTeal,
-        start = Offset(center.x - 20f * scale, torsoTop + 6f * scale),
-        end = Offset(center.x - 32f * scale + armSwing, torsoTop + 32f * scale),
-        strokeWidth = 8f * scale,
-        cap = StrokeCap.Round
-    )
-    drawCircle(skinColor, radius = 5f * scale, center = Offset(center.x - 32f * scale + armSwing, torsoTop + 32f * scale))
-
-    // Right Arm
-    drawLine(
-        color = scrubTeal,
-        start = Offset(center.x + 20f * scale, torsoTop + 6f * scale),
-        end = Offset(center.x + 32f * scale - armSwing, torsoTop + 32f * scale),
-        strokeWidth = 8f * scale,
-        cap = StrokeCap.Round
-    )
-    drawCircle(skinColor, radius = 5f * scale, center = Offset(center.x + 32f * scale - armSwing, torsoTop + 32f * scale))
-
-    // 4. LEGS & SNEAKERS (Striding animation frames 0..3)
-    val torsoBottom = torsoTop + torsoHeight
-
     if (isSliding) {
+        // ==========================================
+        // ACROBATIC SOMERSAULT FORWARD ROLL
+        // ==========================================
+        // Alex curls into an agile tumbling ball tucked right against the road surface
+        val rollCenter = Offset(center.x, center.y + 4f * scale)
+        val ballRadius = 22f * scale
+
+        // Trailing speed blur streaks behind the tumbling character
+        for (i in -1..1) {
+            val streakY = rollCenter.y + (i * 9f * scale)
+            drawLine(
+                color = Color.White.copy(alpha = 0.45f),
+                start = Offset(rollCenter.x - 34f * scale, streakY),
+                end = Offset(rollCenter.x - 14f * scale, streakY),
+                strokeWidth = 2.5f * scale,
+                cap = StrokeCap.Round
+            )
+        }
+
+        // Road friction dust puffs
+        drawCircle(
+            color = Color(0xFFB0BEC5).copy(alpha = 0.5f),
+            radius = 6f * scale,
+            center = Offset(rollCenter.x - 18f * scale, rollCenter.y + 16f * scale)
+        )
+        drawCircle(
+            color = Color(0xFFCFD8DC).copy(alpha = 0.4f),
+            radius = 4f * scale,
+            center = Offset(rollCenter.x - 26f * scale, rollCenter.y + 14f * scale)
+        )
+
+        // Rotate the tucked tumbling character around its center
+        withTransform({
+            rotate(degrees = rollAngle, pivot = rollCenter)
+        }) {
+            // Outer motion spin blur ring
+            drawCircle(
+                color = Color(0xFF00E5FF).copy(alpha = 0.22f),
+                radius = ballRadius * 1.15f,
+                center = rollCenter
+            )
+
+            // 1. Tucked Torso (Curled scrub sphere)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color(0xFF00ACC1), scrubTeal, Color(0xFF006064)),
+                    center = rollCenter,
+                    radius = ballRadius
+                ),
+                radius = ballRadius,
+                center = rollCenter
+            )
+
+            // Stethoscope tubing curled inside tuck
+            drawCircle(
+                color = Color(0xFFB0BEC5),
+                radius = ballRadius * 0.72f,
+                center = rollCenter,
+                style = Stroke(width = 3f * scale)
+            )
+
+            // 2. Tucked Head (Positioned forward/down in tuck)
+            val headCenter = Offset(rollCenter.x + 8f * scale, rollCenter.y - 6f * scale)
+            // Hair
+            drawCircle(hairColor, radius = 13f * scale, center = headCenter)
+            // Face
+            drawCircle(skinColor, radius = 10f * scale, center = Offset(headCenter.x + 2f * scale, headCenter.y))
+            // Shut determined racing eye (> <)
+            drawLine(
+                Color.Black,
+                Offset(headCenter.x + 5f * scale, headCenter.y - 2f * scale),
+                Offset(headCenter.x + 9f * scale, headCenter.y),
+                strokeWidth = 2f * scale
+            )
+            drawLine(
+                Color.Black,
+                Offset(headCenter.x + 9f * scale, headCenter.y),
+                Offset(headCenter.x + 5f * scale, headCenter.y + 2f * scale),
+                strokeWidth = 2f * scale
+            )
+
+            // 3. Tucked Arms (Hugging knees tightly)
+            drawLine(
+                color = scrubTeal,
+                start = Offset(rollCenter.x - 4f * scale, rollCenter.y - 12f * scale),
+                end = Offset(rollCenter.x + 4f * scale, rollCenter.y + 10f * scale),
+                strokeWidth = 7f * scale,
+                cap = StrokeCap.Round
+            )
+            drawCircle(skinColor, radius = 4f * scale, center = Offset(rollCenter.x + 4f * scale, rollCenter.y + 10f * scale))
+
+            // 4. Tucked Legs & White Sneakers
+            drawLine(
+                color = scrubPant,
+                start = Offset(rollCenter.x - 8f * scale, rollCenter.y + 4f * scale),
+                end = Offset(rollCenter.x - 2f * scale, rollCenter.y + 14f * scale),
+                strokeWidth = 8f * scale,
+                cap = StrokeCap.Round
+            )
+            // Curled Sneaker
+            drawRoundRect(
+                color = shoeWhite,
+                topLeft = Offset(rollCenter.x - 8f * scale, rollCenter.y + 10f * scale),
+                size = Size(14f * scale, 8f * scale),
+                cornerRadius = CornerRadius(3f * scale, 3f * scale)
+            )
+            drawLine(
+                shoeSole,
+                Offset(rollCenter.x - 8f * scale, rollCenter.y + 18f * scale),
+                Offset(rollCenter.x + 4f * scale, rollCenter.y + 18f * scale),
+                strokeWidth = 2.5f * scale
+            )
+        }
+    } else {
+        // ==========================================
+        // UPRIGHT RUNNING / JUMPING
+        // ==========================================
+        val headCenter = Offset(center.x, center.y - 78f * scale)
+        val torsoTop = center.y - 48f * scale
+
+        // 1. HEAD & FACE
+        drawRoundRect(
+            color = hairColor,
+            topLeft = Offset(headCenter.x - 22f * scale, headCenter.y - 28f * scale),
+            size = Size(44f * scale, 32f * scale),
+            cornerRadius = CornerRadius(14f * scale, 14f * scale)
+        )
+        drawCircle(color = skinColor, radius = 20f * scale, center = headCenter)
+        drawCircle(color = Color.Black, radius = 2.8f * scale, center = Offset(headCenter.x - 6f * scale, headCenter.y - 2f * scale))
+        drawCircle(color = Color.Black, radius = 2.8f * scale, center = Offset(headCenter.x + 6f * scale, headCenter.y - 2f * scale))
+        drawLine(Color(0xFF3E2723), Offset(headCenter.x - 9f * scale, headCenter.y - 8f * scale), Offset(headCenter.x - 3f * scale, headCenter.y - 6f * scale), strokeWidth = 2f * scale)
+        drawLine(Color(0xFF3E2723), Offset(headCenter.x + 3f * scale, headCenter.y - 6f * scale), Offset(headCenter.x + 9f * scale, headCenter.y - 8f * scale), strokeWidth = 2f * scale)
+        drawLine(Color(0xFFB71C1C), Offset(headCenter.x - 4f * scale, headCenter.y + 8f * scale), Offset(headCenter.x + 4f * scale, headCenter.y + 8f * scale), strokeWidth = 2.5f * scale)
+
+        // 2. TORSO (Teal scrubs with stethoscope & hospital badge)
+        val torsoHeight = 62f * scale
+        drawRoundRect(
+            color = scrubTeal,
+            topLeft = Offset(center.x - 20f * scale, torsoTop),
+            size = Size(40f * scale, torsoHeight),
+            cornerRadius = CornerRadius(8f * scale, 8f * scale)
+        )
+        val vNeck = Path().apply {
+            moveTo(center.x - 8f * scale, torsoTop)
+            lineTo(center.x, torsoTop + 14f * scale)
+            lineTo(center.x + 8f * scale, torsoTop)
+        }
+        drawPath(vNeck, color = skinColor)
+
+        // Stethoscope tubing around neck
+        drawPath(Path().apply {
+            moveTo(headCenter.x - 10f * scale, headCenter.y + 16f * scale)
+            quadraticTo(center.x, torsoTop + 10f * scale, center.x + 10f * scale, headCenter.y + 16f * scale)
+        }, color = Color(0xFFB0BEC5), style = Stroke(width = 3.5f * scale, cap = StrokeCap.Round))
+
+        // Hospital ID Badge
+        drawRect(Color.White, Offset(center.x - 14f * scale, torsoTop + 16f * scale), Size(9f * scale, 12f * scale))
+        drawCircle(Color(0xFF0288D1), radius = 2f * scale, center = Offset(center.x - 9.5f * scale, torsoTop + 20f * scale))
+
+        // 3. ARMS & HANDS (Swinging animation frames 0..3)
+        val armSwing = (when {
+            isJumping -> -24f
+            else -> when (frame) {
+                0 -> 18f
+                1 -> 6f
+                2 -> -18f
+                else -> -6f
+            }
+        }) * scale
+
+        // Left Arm
         drawLine(
-            color = scrubPant,
-            start = Offset(center.x - 10f * scale, torsoBottom),
-            end = Offset(center.x + 28f * scale, torsoBottom + 12f * scale),
-            strokeWidth = 9f * scale,
+            color = scrubTeal,
+            start = Offset(center.x - 20f * scale, torsoTop + 6f * scale),
+            end = Offset(center.x - 32f * scale + armSwing, torsoTop + 32f * scale),
+            strokeWidth = 8f * scale,
             cap = StrokeCap.Round
         )
-        drawRoundRect(Color(0xFF212121), Offset(center.x + 26f * scale, torsoBottom + 8f * scale), Size(18f * scale, 10f * scale), CornerRadius(4f * scale, 4f * scale))
-    } else {
+        drawCircle(skinColor, radius = 5f * scale, center = Offset(center.x - 32f * scale + armSwing, torsoTop + 32f * scale))
+
+        // Right Arm
+        drawLine(
+            color = scrubTeal,
+            start = Offset(center.x + 20f * scale, torsoTop + 6f * scale),
+            end = Offset(center.x + 32f * scale - armSwing, torsoTop + 32f * scale),
+            strokeWidth = 8f * scale,
+            cap = StrokeCap.Round
+        )
+        drawCircle(skinColor, radius = 5f * scale, center = Offset(center.x + 32f * scale - armSwing, torsoTop + 32f * scale))
+
+        // 4. LEGS & SNEAKERS (Striding animation frames 0..3)
+        val torsoBottom = torsoTop + torsoHeight
         val legSpread = (when {
             isJumping -> -14f
             else -> when (frame) {
