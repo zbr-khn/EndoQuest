@@ -150,11 +150,27 @@ fun ResultsScreen(
                 ) {
                     Column(
                         modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        ResultMetricRow("Total Money Collected", "$${progress.moneyCollected} (${progress.moneyCollected / 25} gold coins)", Color(0xFFFFD700))
-                        ResultMetricRow("RCT Stages Mastered", "${progress.rctStagesCompleted} / ${viewModel.rctStages.size} Stages Completed", Color(0xFF00E5FF))
-                        ResultMetricRow("Clinical Quiz Accuracy", "$accuracyPercent% (${progress.correctQuizAnswers} of ${progress.totalQuizAttempts.coerceAtLeast(1)} correct)", tierColor)
+                        Text(
+                            text = "ROUND-BY-ROUND BREAKDOWN",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+                            color = Color(0xFF80DEEA)
+                        )
+                        ResultMetricRow("Round 1 (Dental Police)", "$${progress.round1TotalMoney} (${progress.round1QuestionsCorrect}/3 passed + $${progress.round1CoinEarnings} coins)", Color.White)
+                        ResultMetricRow("Round 2 (Enamel Maze)", "+$${progress.round2DynamicReward} (${progress.round2QuestionsCorrect}/2 gates unlocked)", Color(0xFF00E5FF))
+                        ResultMetricRow("Round 3 (Zombie Challenge)", "+$1,500 (${progress.round3QuestionsCorrect}/3 monsters defeated)", Color(0xFF69F0AE))
+                        ResultMetricRow("Final Clinical Funds", "$5,000 (Target Met 100%)", Color(0xFFFFD700))
+
+                        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.15f)))
+
+                        Text(
+                            text = "CLINICAL PERFORMANCE",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+                            color = Color(0xFF80DEEA)
+                        )
+                        ResultMetricRow("RCT Stages Mastered", "${progress.rctStagesCompleted} / ${viewModel.rctStages.size} Completed", Color(0xFF00E5FF))
+                        ResultMetricRow("Overall Quiz Accuracy", "$accuracyPercent% (${progress.correctQuizAnswers} of ${progress.totalQuizAttempts.coerceAtLeast(1)} correct)", tierColor)
                         ResultMetricRow("Tooth Prognosis", "Excellent (Hermetic Apical Seal)", Color(0xFF4CAF50))
                     }
                 }

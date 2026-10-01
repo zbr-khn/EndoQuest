@@ -60,16 +60,43 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        // ROUND 1: RUNNER + DENTAL POLICE
                         composable(Screen.Runner.route) {
                             RunnerScreen(
                                 viewModel = gameViewModel,
-                                onTriggerQuiz = { navController.navigate(Screen.Quiz.route) },
-                                onReturnToClinic = {
-                                    navController.navigate(Screen.RctIntro.route) {
+                                onProceedToMaze = {
+                                    navController.navigate(Screen.Maze.route) {
                                         popUpTo(Screen.Runner.route) { inclusive = true }
                                     }
                                 },
+                                onRoundOver = { navController.navigate(Screen.RoundOver.route) },
                                 onGameOver = { navController.navigate(Screen.GameOver.route) }
+                            )
+                        }
+
+                        // ROUND 2: DENTAL MAZE
+                        composable(Screen.Maze.route) {
+                            MazeScreen(
+                                viewModel = gameViewModel,
+                                onProceedToZombie = {
+                                    navController.navigate(Screen.ZombieChallenge.route) {
+                                        popUpTo(Screen.Maze.route) { inclusive = true }
+                                    }
+                                },
+                                onRoundOver = { navController.navigate(Screen.RoundOver.route) }
+                            )
+                        }
+
+                        // ROUND 3: ZOMBIE DENTAL CHALLENGE
+                        composable(Screen.ZombieChallenge.route) {
+                            ZombieScreen(
+                                viewModel = gameViewModel,
+                                onProceedToClinic = {
+                                    navController.navigate(Screen.RctIntro.route) {
+                                        popUpTo(Screen.ZombieChallenge.route) { inclusive = true }
+                                    }
+                                },
+                                onRoundOver = { navController.navigate(Screen.RoundOver.route) }
                             )
                         }
 
@@ -80,6 +107,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        // RETURN TO CLINIC & RCT SIMULATION
                         composable(Screen.RctIntro.route) {
                             RctIntroScreen(
                                 viewModel = gameViewModel,
@@ -110,6 +138,23 @@ class MainActivity : ComponentActivity() {
                                 viewModel = gameViewModel,
                                 onRetry = {
                                     navController.popBackStack(Screen.Runner.route, false)
+                                },
+                                onReturnToMenu = {
+                                    navController.navigate(Screen.MainMenu.route) {
+                                        popUpTo(Screen.MainMenu.route) { inclusive = true }
+                                    }
+                                }
+                            )
+                        }
+
+                        composable(Screen.RoundOver.route) {
+                            RoundOverScreen(
+                                viewModel = gameViewModel,
+                                onRestartRound = {
+                                    val target = gameViewModel.roundOverInfo.targetRoute
+                                    navController.navigate(target) {
+                                        popUpTo(Screen.RoundOver.route) { inclusive = true }
+                                    }
                                 },
                                 onReturnToMenu = {
                                     navController.navigate(Screen.MainMenu.route) {

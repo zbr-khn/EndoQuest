@@ -68,7 +68,7 @@ fun GameOverScreen(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "• Low Instrument Trays ➔ Swipe UP to Jump\n• Overhead Operating Lamps ➔ Swipe DOWN to Slide\n• Mobile Carts & Decayed Teeth ➔ Swipe LEFT/RIGHT to Dodge",
+                        text = "• Empty Gum Socket ➔ Swipe UP to Jump\n• Decayed Tooth Arch ➔ Swipe DOWN to Slide\n• Giant Rotating Bur ➔ Swipe LEFT/RIGHT to Dodge",
                         style = MaterialTheme.typography.bodySmall.copy(lineHeight = 20.sp),
                         color = Color.White.copy(alpha = 0.9f)
                     )

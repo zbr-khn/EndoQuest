@@ -187,8 +187,42 @@ object SampleData {
             explanation = "A hermetic coronal restoration prevents coronal microleakage of bacteria/oral fluids into the root canal system and restores the tooth's masticatory function.",
             difficulty = "4th-Year BDS",
             category = "Post-Endodontic Restoration"
+        ),
+        com.example.endoquest.model.RunQuizQuestion(
+            id = "run_q10",
+            questionText = "Which microorganism is most frequently isolated from failed root canal cases with persistent periapical lesions?",
+            rawOptions = listOf(
+                "Streptococcus mutans",
+                "Enterococcus faecalis",
+                "Lactobacillus acidophilus",
+                "Actinomyces viscosus"
+            ),
+            correctAnswerText = "Enterococcus faecalis",
+            explanation = "Enterococcus faecalis is a hardy facultative anaerobe capable of invading dentinal tubules and resisting starvation and alkaline pH, making it the most common isolate in persistent endodontic failures.",
+            difficulty = "4th-Year BDS",
+            category = "Endodontic Microbiology"
         )
     )
+
+    val round1Questions = listOf(
+        runEndodonticsQuestionPool[0], // q1: Instrumentation objective
+        runEndodonticsQuestionPool[1], // q2: Irrigant NaOCl
+        runEndodonticsQuestionPool[2]  // q3: Working length
+    )
+
+    val round2MazeQuestions = listOf(
+        runEndodonticsQuestionPool[3], // q4: Gutta-percha
+        runEndodonticsQuestionPool[4], // q5: Apex locator
+        runEndodonticsQuestionPool[6]  // q7: Smear layer
+    )
+
+    val round3ZombieQuestions = listOf(
+        runEndodonticsQuestionPool[5], // q6: NaOCl properties
+        runEndodonticsQuestionPool[7], // q8: Failure etiology
+        runEndodonticsQuestionPool[9], // q10: Enterococcus faecalis
+        runEndodonticsQuestionPool[8]  // q9: Coronal restoration
+    )
+
 
     // 3 Clinical Levels matching the curriculum images
     val rctStages = listOf(

@@ -42,7 +42,7 @@ fun InstructionsScreen(
                 step = "1",
                 emoji = "🏃‍♂️",
                 title = "3D Runner Controls",
-                description = "Swipe Left / Right to switch between the 3 lanes.\nSwipe Up to JUMP over low instrument trays.\nSwipe Down to SLIDE under overhead surgical lamps.\nDodge mobile carts & decayed tooth barriers!"
+                description = "Swipe Left / Right to switch between the 3 lanes.\nSwipe Up to JUMP over empty gum sockets.\nSwipe Down to SLIDE under giant decayed teeth.\nDodge giant rotating dental burs!"
             )
 
             Spacer(modifier = Modifier.height(14.dp))

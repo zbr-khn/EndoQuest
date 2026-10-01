@@ -1,0 +1,72 @@
+name: Build and Release Android APK
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Publish APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Grant Execute Permission for Gradlew
+        run: chmod +x gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk EndoQuest.apk
+
+      - name: Upload APK as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EndoQuest-APK
+          path: EndoQuest.apk
+
+      - name: Update Latest GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: latest
+          name: "EndoQuest - Latest Build"
+          body: |
+            ## 📱 EndoQuest Latest Android Build
+            
+            Download the latest compiled APK directly below:
+            - **[EndoQuest.apk](https://github.com/${{ github.repository }}/releases/download/latest/EndoQuest.apk)**
+            
+            ### What's Inside:
+            - 🎮 **Round 1 (Endless Runner)**: 3D perspective runner with Decayed Tooth (Slide Under), Gum Socket (Jump Over), and Rotating Dental Bur (Change Lane) obstacles, rhythmic coin trails, and 15s Dental Police inspections.
+            - 🧭 **Round 2 (Dental Maze)**: Top-down clinical navigation and instrument collection.
+            - 🧟 **Round 3 (Zombie Tooth Chase)**: High-stakes clinical obstacle survival.
+            - 🏥 **Round 4 (Clinic RCT Simulation)**: Hands-on 3-stage clinical simulation with irrigation and debridement.
+          draft: false
+          prerelease: false
+          files: EndoQuest.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

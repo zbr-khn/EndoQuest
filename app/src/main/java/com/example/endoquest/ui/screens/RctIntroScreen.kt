@@ -63,7 +63,7 @@ fun RctIntroScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "\"Incredible work, Alex!\" says Dr. Smile warmly. \"You sprinted through the city and collected the full \$5,000 for your Root Canal Treatment! Now, relax in the chair as we perform the ${viewModel.rctStages.size} clinical stages to save your tooth!\"",
+                        text = "\"Incredible work, Alex!\" says Dr. Smile warmly. \"You conquered the Dental Highway, unlocked the Enamel Maze, and defeated the Decay Monsters to secure all \$5,000 for your treatment! Now, take a seat in the dental chair as we perform the ${viewModel.rctStages.size} clinical stages to save your tooth!\"",
                         style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
                         textAlign = TextAlign.Center,
                         color = Color.White.copy(alpha = 0.9f)

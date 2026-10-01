@@ -25,6 +25,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import com.example.endoquest.R
 import com.example.endoquest.ui.viewmodel.GameViewModel
 import kotlinx.coroutines.delay
 import kotlin.math.abs
@@ -39,20 +43,29 @@ data class RunnerItem(
     var depth: Float, // 0.0 (horizon) to 1.0 (foreground/player)
     val isCoin: Boolean,
     val value: Int = 25,
-    val obstacleType: ObstacleType = ObstacleType.NONE
+    val obstacleType: ObstacleType = ObstacleType.NONE,
+    var cleared: Boolean = false,
+    val elevation: Float = 0f // 0f = ground level, up to 1f for apex jump height
 )
 
 enum class ObstacleType {
-    NONE, LOW_TRAY, HIGH_LAMP, MOBILE_CART, TOOTH_BARRIER
+    NONE,
+    GUM_SOCKET,      // Jump over (Compact Broken Gum with deep empty socket hole in center)
+    DECAYED_TOOTH,   // Slide under (Angry Decayed Tooth with large U-shaped arch between roots)
+    ROTATING_BUR     // Dodge (Giant Rotating Dental Bur Handpiece blocking the entire lane)
 }
 
 @Composable
 fun RunnerScreen(
     viewModel: GameViewModel,
-    onTriggerQuiz: () -> Unit,
-    onReturnToClinic: () -> Unit,
+    onProceedToMaze: () -> Unit,
+    onRoundOver: () -> Unit,
     onGameOver: () -> Unit
 ) {
+    val toothBitmap = ImageBitmap.imageResource(id = R.drawable.obs_decayed_tooth)
+    val gumBitmap = ImageBitmap.imageResource(id = R.drawable.obs_gum_socket)
+    val burBitmap = ImageBitmap.imageResource(id = R.drawable.obs_dental_bur)
+
     var items by remember { mutableStateOf(listOf<RunnerItem>()) }
     var nextItemId by remember { mutableStateOf(0) }
     var baseSpeed by remember { mutableStateOf(0.008f) }
@@ -60,13 +73,17 @@ fun RunnerScreen(
     var coinSpinAngle by remember { mutableStateOf(0f) }
     var roadOffset by remember { mutableStateOf(0f) }
 
-    // Jump state animation
-    val jumpProgress by animateFloatAsState(
-        targetValue = if (viewModel.isJumping) 1f else 0f,
-        animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
-        finishedListener = { viewModel.resetJump() },
-        label = "jumpAnim"
-    )
+    // Jump state animation (Subway Surfers style full rise and fall)
+    val jumpAnim = remember { Animatable(0f) }
+    LaunchedEffect(viewModel.isJumping) {
+        if (viewModel.isJumping) {
+            jumpAnim.animateTo(1f, animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing))
+            jumpAnim.animateTo(0f, animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing))
+            viewModel.resetJump()
+        } else {
+            jumpAnim.snapTo(0f)
+        }
+    }
 
     // Slide auto-reset timer (crouch gets back up after 750ms automatically)
     LaunchedEffect(viewModel.isSliding) {
@@ -76,12 +93,14 @@ fun RunnerScreen(
         }
     }
 
-    // Automatically transition to clinic when $5,000 target is reached (Dr. Smile popup & auto-transition)
-    LaunchedEffect(viewModel.showGoalReachedPopup) {
-        if (viewModel.showGoalReachedPopup) {
-            viewModel.soundManager.playQuizSuccess()
-            delay(2800)
-            onReturnToClinic()
+    // Dental Police inspection timer: exactly every 15 seconds (15s, 30s, 45s; max 3 encounters)
+    LaunchedEffect(viewModel.isPoliceEncounterActive, viewModel.isRound1Complete, viewModel.runnerResetTrigger) {
+        if (!viewModel.isPoliceEncounterActive && !viewModel.isRound1Complete && viewModel.round1QuestionCount < 3) {
+            val waitMillis = 15000L
+            delay(waitMillis)
+            if (!viewModel.isPoliceEncounterActive && !viewModel.isRound1Complete && viewModel.round1QuestionCount < 3) {
+                viewModel.triggerPoliceEncounter()
+            }
         }
     }
 
@@ -125,41 +144,170 @@ fun RunnerScreen(
     var isGameOverTriggered by remember { mutableStateOf(false) }
     var dragTriggered by remember { mutableStateOf(false) }
 
+    // Guaranteed obstacle queue ensuring all 3 types appear in every run with natural order variation
+    val guaranteedObstacleQueue = remember { mutableListOf<ObstacleType>() }
+    var obstacleSpawnTimer by remember { mutableStateOf(1.2f) }
+    var coinSpawnTimer by remember { mutableStateOf(0.3f) }
+
+    fun refillGuaranteedQueue() {
+        guaranteedObstacleQueue.clear()
+        // Guarantees DECAYED_TOOTH, GUM_SOCKET, and ROTATING_BUR all appear in each run
+        val mandatoryThree = listOf(
+            ObstacleType.DECAYED_TOOTH,
+            ObstacleType.GUM_SOCKET,
+            ObstacleType.ROTATING_BUR
+        ).shuffled()
+        guaranteedObstacleQueue.addAll(mandatoryThree)
+    }
+
+    LaunchedEffect(Unit) {
+        if (guaranteedObstacleQueue.isEmpty()) {
+            refillGuaranteedQueue()
+        }
+    }
+
     LaunchedEffect(viewModel.runnerResetTrigger) {
         isGameOverTriggered = false
         items = emptyList()
+        obstacleSpawnTimer = 1.2f
+        coinSpawnTimer = 0.3f
+        refillGuaranteedQueue()
     }
 
     // Main 3D perspective game loop (Strictly gameplay driven, ZERO bottom buttons, 100% active collisions)
     LaunchedEffect(viewModel.isPoliceEncounterActive, viewModel.runnerResetTrigger) {
         var lastTime = System.currentTimeMillis()
-        while (viewModel.progress.moneyCollected < viewModel.progress.targetMoney && !viewModel.showGoalReachedPopup) {
+        while (!viewModel.isRound1Complete) {
             val now = System.currentTimeMillis()
-            val dt = (now - lastTime).toFloat() / 1000f
+            val dt = ((now - lastTime).toFloat() / 1000f).coerceIn(0.001f, 0.05f)
             lastTime = now
 
             if (!viewModel.isPoliceEncounterActive) {
-                if (Random.nextFloat() < 0.018f) {
-                    val lane = Random.nextInt(3)
-                    val isCoin = Random.nextFloat() > 0.35f
-                    val obsType = if (!isCoin) {
-                        when (Random.nextInt(4)) {
-                            0 -> ObstacleType.LOW_TRAY
-                            1 -> ObstacleType.HIGH_LAMP
-                            2 -> ObstacleType.MOBILE_CART
-                            else -> ObstacleType.TOOTH_BARRIER
-                        }
-                    } else ObstacleType.NONE
+                obstacleSpawnTimer -= dt
+                coinSpawnTimer -= dt
 
-                    val newItem = RunnerItem(
-                        id = nextItemId++,
-                        lane = lane,
-                        depth = 0f,
-                        isCoin = isCoin,
-                        value = 25,
-                        obstacleType = obsType
-                    )
-                    items = items + newItem
+                // 1. CONTROLLED OBSTACLE SPAWNER (Frequency: ~3.0s - 3.4s cadence for rhythmic, fair reaction windows)
+                if (obstacleSpawnTimer <= 0f) {
+                    obstacleSpawnTimer = 3.0f + Random.nextFloat() * 0.4f
+
+                    // Guaranteed queue ensures all 3 appear first; subsequent obstacles are weighted/random
+                    val obsType = if (guaranteedObstacleQueue.isNotEmpty()) {
+                        guaranteedObstacleQueue.removeAt(0)
+                    } else {
+                        listOf(
+                            ObstacleType.DECAYED_TOOTH,
+                            ObstacleType.GUM_SOCKET,
+                            ObstacleType.ROTATING_BUR
+                        ).random()
+                    }
+
+                    val obsLane = Random.nextInt(3)
+                    val newItems = mutableListOf<RunnerItem>()
+
+                    when (obsType) {
+                        ObstacleType.DECAYED_TOOTH -> {
+                            // Decayed Tooth (Player must SLIDE under)
+                            val baseDepth = 0.06f
+                            newItems.add(
+                                RunnerItem(
+                                    id = nextItemId++,
+                                    lane = obsLane,
+                                    depth = baseDepth,
+                                    isCoin = false,
+                                    obstacleType = ObstacleType.DECAYED_TOOTH
+                                )
+                            )
+                            // Slide Guide Coins: Straight line directly underneath the tooth arch tunnel
+                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth + 0.08f, isCoin = true, elevation = 0f))
+                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth, isCoin = true, elevation = 0f))
+                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth - 0.08f, isCoin = true, elevation = 0f))
+                        }
+
+                        ObstacleType.GUM_SOCKET -> {
+                            // Broken Gum / Socket (Player must JUMP over)
+                            val baseDepth = 0.06f
+                            newItems.add(
+                                RunnerItem(
+                                    id = nextItemId++,
+                                    lane = obsLane,
+                                    depth = baseDepth,
+                                    isCoin = false,
+                                    obstacleType = ObstacleType.GUM_SOCKET
+                                )
+                            )
+                            // Jump Arc Coins: Parabolic arc floating directly over the gum socket
+                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth + 0.08f, isCoin = true, elevation = 0.40f))
+                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth + 0.04f, isCoin = true, elevation = 0.75f))
+                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth, isCoin = true, elevation = 1.0f))
+                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth - 0.04f, isCoin = true, elevation = 0.75f))
+                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth - 0.08f, isCoin = true, elevation = 0.40f))
+                        }
+
+                        ObstacleType.ROTATING_BUR -> {
+                            // Giant Rotating Bur (Player must CHANGE LANE / DODGE)
+                            val baseDepth = 0.06f
+                            val safeLane = when (obsLane) {
+                                0 -> 1
+                                2 -> 1
+                                else -> if (Random.nextBoolean()) 0 else 2
+                            }
+                            newItems.add(
+                                RunnerItem(
+                                    id = nextItemId++,
+                                    lane = obsLane,
+                                    depth = baseDepth,
+                                    isCoin = false,
+                                    obstacleType = ObstacleType.ROTATING_BUR
+                                )
+                            )
+                            // Lane Dodge Guide Coins: leading into the open safe adjacent lane
+                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth + 0.12f, isCoin = true, elevation = 0f))
+                            newItems.add(RunnerItem(id = nextItemId++, lane = safeLane, depth = baseDepth + 0.06f, isCoin = true, elevation = 0f))
+                            newItems.add(RunnerItem(id = nextItemId++, lane = safeLane, depth = baseDepth, isCoin = true, elevation = 0f))
+                            newItems.add(RunnerItem(id = nextItemId++, lane = safeLane, depth = baseDepth - 0.06f, isCoin = true, elevation = 0f))
+                        }
+
+                        ObstacleType.NONE -> {}
+                    }
+
+                    items = items + newItems
+                }
+
+                // 2. IN-BETWEEN COIN FORMATIONS (Steady coin rhythm between obstacles)
+                if (coinSpawnTimer <= 0f) {
+                    coinSpawnTimer = 1.3f + Random.nextFloat() * 0.4f
+
+                    // Avoid visual clutter directly atop horizon obstacles
+                    val canSpawnCoins = items.none { it.depth in -0.05f..0.15f }
+                    if (canSpawnCoins) {
+                        val cLane = Random.nextInt(3)
+                        val pattern = Random.nextInt(3)
+                        val coinBurst = mutableListOf<RunnerItem>()
+
+                        when (pattern) {
+                            0 -> {
+                                // 3 straight ground coins
+                                coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.10f, isCoin = true, elevation = 0f))
+                                coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.05f, isCoin = true, elevation = 0f))
+                                coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.00f, isCoin = true, elevation = 0f))
+                            }
+                            1 -> {
+                                // 3 airborne jump coins
+                                coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.08f, isCoin = true, elevation = 0.45f))
+                                coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.04f, isCoin = true, elevation = 0.85f))
+                                coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.00f, isCoin = true, elevation = 0.45f))
+                            }
+                            2 -> {
+                                // Gentle diagonal lane switch
+                                val nextLane = if (cLane == 0) 1 else if (cLane == 2) 1 else (if (Random.nextBoolean()) 0 else 2)
+                                coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.10f, isCoin = true, elevation = 0f))
+                                coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.05f, isCoin = true, elevation = 0f))
+                                coinBurst.add(RunnerItem(id = nextItemId++, lane = nextLane, depth = 0.00f, isCoin = true, elevation = 0f))
+                                coinBurst.add(RunnerItem(id = nextItemId++, lane = nextLane, depth = -0.05f, isCoin = true, elevation = 0f))
+                            }
+                        }
+                        items = items + coinBurst
+                    }
                 }
             }
 
@@ -171,30 +319,45 @@ fun RunnerScreen(
                 item.depth += baseSpeed * (dt * 60f).coerceIn(0.5f, 2.5f)
                 if (item.depth < 1.08f) {
                     val itemLaneX = (item.lane - 1).toFloat()
-                    // 100% active collision check (zero invulnerability bugs)
-                    if (!viewModel.isPoliceEncounterActive && item.depth in 0.88f..0.98f && abs(itemLaneX - animatedLaneX) < 0.42f) {
+                    val inRange = item.depth in 0.86f..0.98f && abs(itemLaneX - animatedLaneX) < 0.42f
+
+                    if (!viewModel.isPoliceEncounterActive && inRange) {
                         if (item.isCoin) {
-                            viewModel.soundManager.playCoin()
-                            viewModel.addMoney(item.value)
-                            if (viewModel.isPoliceEncounterActive) {
-                                items = items.filter { it.isCoin || it.depth < 0.50f }
-                                break
+                            val isAirborne = viewModel.isJumping || jumpAnim.value > 0.15f
+                            val isHighCoin = item.elevation > 0.30f
+                            val canCollect = if (isHighCoin) isAirborne else true
+
+                            if (canCollect && !item.cleared) {
+                                item.cleared = true
+                                viewModel.soundManager.playCoin()
+                                viewModel.addMoney(item.value)
+                                // Coin is collected, omit from updated list to remove from view
+                            } else {
+                                updated.add(item)
                             }
                         } else {
-                            val hit = when (item.obstacleType) {
-                                ObstacleType.LOW_TRAY -> !viewModel.isSliding
-                                ObstacleType.HIGH_LAMP -> !viewModel.isJumping
-                                ObstacleType.MOBILE_CART, ObstacleType.TOOTH_BARRIER -> true
-                                ObstacleType.NONE -> false
-                            }
+                            if (!item.cleared) {
+                                val isAirborne = viewModel.isJumping || jumpAnim.value > 0.15f
+                                val isDucking = viewModel.isSliding
+                                val hit = when (item.obstacleType) {
+                                    ObstacleType.GUM_SOCKET -> !isAirborne   // Jump over it!
+                                    ObstacleType.DECAYED_TOOTH -> !isDucking // Slide under it!
+                                    ObstacleType.ROTATING_BUR -> true        // Solid block! Must dodge lane!
+                                    ObstacleType.NONE -> false
+                                }
 
-                            if (hit && !isGameOverTriggered) {
-                                isGameOverTriggered = true
-                                viewModel.soundManager.playCollision()
-                                items = emptyList()
-                                onGameOver()
-                                break
-                            } else if (!hit) {
+                                if (hit && !isGameOverTriggered) {
+                                    isGameOverTriggered = true
+                                    viewModel.soundManager.playCollision()
+                                    items = emptyList()
+                                    onGameOver()
+                                    break
+                                } else if (!hit) {
+                                    // Cleared! Mark as cleared so subsequent frames don't re-trigger collision
+                                    item.cleared = true
+                                    updated.add(item)
+                                }
+                            } else {
                                 updated.add(item)
                             }
                         }
@@ -205,6 +368,9 @@ fun RunnerScreen(
             }
             if (!viewModel.isPoliceEncounterActive) {
                 items = updated
+            } else {
+                // Clear immediate foreground obstacles while police inspection is active
+                items = items.filter { it.isCoin || it.depth < 0.40f }
             }
 
             delay(16)
@@ -295,12 +461,12 @@ fun RunnerScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    text = "RCT Cost Target",
+                                    text = "Police Inspections",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color(0xFF90CAF9)
                                 )
                                 Text(
-                                    text = "$5,000",
+                                    text = "${viewModel.round1QuestionCount}/3 (+$500)",
                                     style = MaterialTheme.typography.titleMedium.copy(
                                         fontWeight = FontWeight.Bold
                                     ),
@@ -419,6 +585,8 @@ fun RunnerScreen(
                         // 6. DRAW ITEMS
                         val sortedItems = items.sortedBy { it.depth }
                         for (item in sortedItems) {
+                            if (item.depth < 0f) continue // Not yet visible over the horizon
+
                             val depthSquared = item.depth
                             val currentY = horizonY + (bottomY - horizonY) * depthSquared
                             val currentRoadW = roadWidthTop + (roadWidthBottom - roadWidthTop) * depthSquared
@@ -429,9 +597,34 @@ fun RunnerScreen(
 
                             if (item.isCoin) {
                                 val bobY = currentY + sin(coinSpinAngle * (PI / 180.0).toFloat() * 3f + item.id) * (4f * scale * s)
-                                draw3DMetallicGoldCoin(Offset(itemX, bobY), scale * s, coinSpinAngle + item.id * 45f)
+                                val elevationOffset = item.elevation * (100f * scale * s)
+                                val coinY = bobY - elevationOffset
+
+                                // For airborne coins (e.g. jump arcs), draw ground shadow on asphalt
+                                if (item.elevation > 0.15f) {
+                                    val shadowW = (13f * scale * s) * (1f - item.elevation * 0.30f)
+                                    drawOval(
+                                        color = Color.Black.copy(alpha = 0.28f * (1f - item.elevation * 0.40f)),
+                                        topLeft = Offset(itemX - shadowW, currentY - 3f * scale * s),
+                                        size = Size(shadowW * 2f, 6f * scale * s)
+                                    )
+                                }
+
+                                draw3DMetallicGoldCoin(
+                                    center = Offset(itemX, coinY),
+                                    scale = scale * s * (1f + item.elevation * 0.12f),
+                                    spinAngle = coinSpinAngle + item.id * 45f
+                                )
                             } else {
-                                drawDentalObstacle(Offset(itemX, currentY), item.obstacleType, scale * s)
+                                drawDentalObstacle(
+                                    center = Offset(itemX, currentY),
+                                    type = item.obstacleType,
+                                    scale = scale * s,
+                                    toothBitmap = toothBitmap,
+                                    gumBitmap = gumBitmap,
+                                    burBitmap = burBitmap,
+                                    spinAngle = coinSpinAngle
+                                )
                             }
                         }
 
@@ -446,21 +639,21 @@ fun RunnerScreen(
 
                         // 8. PROMINENT HUMAN PLAYER CHARACTER: ALEX
                         val playerDepth = 0.92f
-                        val jumpYOffset = jumpProgress * (90f * s)
+                        val jumpYOffset = jumpAnim.value * (110f * s)
                         val playerY = horizonY + (bottomY - horizonY) * playerDepth - jumpYOffset
                         val roadWAtPlayer = roadWidthTop + (roadWidthBottom - roadWidthTop) * playerDepth
                         val laneWAtPlayer = roadWAtPlayer / 3f
                         val playerX = horizonX + (animatedLaneX * laneWAtPlayer)
 
                         // Ground shadow
-                        val shadowScale = (1f - jumpProgress * 0.45f) * s
+                        val shadowScale = (1f - jumpAnim.value * 0.45f) * s
                         val shadowY = horizonY + (bottomY - horizonY) * playerDepth + (if (viewModel.isSliding) 5f * s else 18f * s)
                         drawOval(Color.Black.copy(alpha = 0.4f), Offset(playerX - 32f * shadowScale, shadowY - 9f * shadowScale), Size(64f * shadowScale, 18f * shadowScale))
 
                         drawAlexPlayerCharacter(
                             center = Offset(playerX, playerY),
                             frame = runFrame,
-                            isJumping = viewModel.isJumping,
+                            isJumping = viewModel.isJumping || jumpAnim.value > 0.05f,
                             isSliding = viewModel.isSliding,
                             scale = s * 1.4f
                         )
@@ -485,8 +678,8 @@ fun RunnerScreen(
                 }
             }
 
-            // DR. SMILE CONGRATULATORY CELEBRATION POPUP AT $5,000
-            if (viewModel.showGoalReachedPopup) {
+            // ROUND 1 COMPLETE CELEBRATION MODAL
+            if (viewModel.isRound1Complete) {
                 Box(
                     modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)).padding(24.dp),
                     contentAlignment = Alignment.Center
@@ -501,32 +694,54 @@ fun RunnerScreen(
                             modifier = Modifier.padding(26.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text(text = "👨‍⚕️🎉", fontSize = 56.sp)
+                            Text(text = "🏁👮‍♂️✨", fontSize = 56.sp)
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "DR. SMILE CONGRATULATES YOU!",
-                                style = MaterialTheme.typography.titleMedium.copy(
+                                text = "ROUND 1 COMPLETE!",
+                                style = MaterialTheme.typography.headlineSmall.copy(
                                     fontWeight = FontWeight.ExtraBold,
                                     letterSpacing = 1.sp
                                 ),
                                 color = Color(0xFFFFD700),
                                 textAlign = TextAlign.Center
                             )
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "\"Magnificent work, Alex! You successfully completed the journey and collected all $5,000 for your treatment.\"\n\nNow entering the dental clinic to begin the Root Canal Treatment procedure!",
-                                style = MaterialTheme.typography.bodyMedium,
-                                textAlign = TextAlign.Center,
-                                color = Color.White
+                                text = "Dental Highway Cleared!\nOfficer Floss grants full clinical passage.",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFF80DEEA),
+                                textAlign = TextAlign.Center
                             )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2838)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Coins Collected:", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
+                                        Text("$${viewModel.progress.round1CoinEarnings}", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = Color(0xFFFFD700))
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Police Inspections (3/3):", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
+                                        Text("+$1,500", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = Color(0xFF00E5FF))
+                                    }
+                                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.2f)))
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Total Round 1 Funds:", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = Color.White)
+                                        Text("$${viewModel.progress.moneyCollected}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = Color(0xFFFFD700))
+                                    }
+                                }
+                            }
                             Spacer(modifier = Modifier.height(20.dp))
                             Button(
-                                onClick = onReturnToClinic,
-                                modifier = Modifier.fillMaxWidth().height(50.dp),
+                                onClick = onProceedToMaze,
+                                modifier = Modifier.fillMaxWidth().height(52.dp),
                                 shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
                             ) {
-                                Text("Enter Dental Clinic 🏥", fontWeight = FontWeight.ExtraBold, color = Color.White)
+                                Text("Proceed to Round 2: Dental Maze ➡️", fontWeight = FontWeight.ExtraBold, color = Color.Black)
                             }
                         }
                     }
@@ -553,8 +768,8 @@ fun RunnerScreen(
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(text = "🚨👮‍♂️", fontSize = 28.sp)
                                     Column {
-                                        Text("DENTAL HIGHWAY PATROL", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = Color(0xFFFF5252))
-                                        Text("Officer Floss: \"Halt! Endodontic Road Inspection!\"", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFFD54F))
+                                        Text("DENTAL HIGHWAY PATROL (INSPECTION ${viewModel.round1QuestionCount + 1} OF 3)", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = Color(0xFFFF5252))
+                                        Text("Officer Floss: \"Halt! Endodontic Inspection! (+$500 on pass)\"", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFFD54F))
                                     }
                                 }
 
@@ -591,7 +806,7 @@ fun RunnerScreen(
                                         Button(
                                             onClick = {
                                                 if (!isPassed) {
-                                                    viewModel.submitRunQuizAnswer(idx)
+                                                    viewModel.submitRunQuizAnswer(idx, onRoundOver = onRoundOver)
                                                 }
                                             },
                                             modifier = Modifier.fillMaxWidth().height(46.dp),
@@ -618,8 +833,8 @@ fun RunnerScreen(
                                     ) {
                                         Column(modifier = Modifier.padding(12.dp)) {
                                             Text(
-                                                text = if (isPassed) "✅ INSPECTION PASSED! Officer Salutes: +$${currentQ.coinReward} Reward!"
-                                                       else "❌ INCORRECT ANSWER! Clinical Review:",
+                                                text = if (isPassed) "✅ INSPECTION PASSED! Officer Salutes: +$500 Reward!"
+                                                       else "❌ INCORRECT ANSWER! Round Over!",
                                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                                                 color = Color.White
                                             )
@@ -631,22 +846,27 @@ fun RunnerScreen(
                                     Spacer(modifier = Modifier.height(12.dp))
 
                                     if (isPassed) {
-                                        Button(
-                                            onClick = { viewModel.resumeRunnerFromPolice() },
-                                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                                            shape = RoundedCornerShape(14.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
-                                        ) {
-                                            Text("Officer Salutes: Resume 3D Runner! 🏃‍♂️💨", fontWeight = FontWeight.ExtraBold, color = Color.Black)
-                                        }
-                                    } else {
-                                        Button(
-                                            onClick = { viewModel.retryRunQuestion() },
-                                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                                            shape = RoundedCornerShape(14.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800))
-                                        ) {
-                                            Text("🔄 Try Question Again", fontWeight = FontWeight.ExtraBold, color = Color.Black)
+                                        if (viewModel.round1QuestionCount >= 3) {
+                                            Button(
+                                                onClick = onProceedToMaze,
+                                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                                shape = RoundedCornerShape(14.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+                                            ) {
+                                                Text("All 3 Passed! Proceed to Maze ➡️", fontWeight = FontWeight.ExtraBold, color = Color.Black)
+                                            }
+                                        } else {
+                                            Button(
+                                                onClick = {
+                                                    items = items.filter { it.isCoin || it.depth < 0.40f }
+                                                    viewModel.resumeRunnerFromPolice()
+                                                },
+                                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                                shape = RoundedCornerShape(14.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+                                            ) {
+                                                Text("Officer Salutes: Resume 3D Runner! 🏃‍♂️💨", fontWeight = FontWeight.ExtraBold, color = Color.Black)
+                                            }
                                         }
                                     }
                                 }
@@ -724,125 +944,117 @@ fun DrawScope.draw3DMetallicGoldCoin(
 }
 
 /**
- * Renders dental-themed obstacles in 3D perspective.
+ * Renders the 3 custom cartoon dental obstacles:
+ * 1. GUM_SOCKET: Broken Gum / Empty Socket sitting directly on asphalt (Must JUMP over).
+ * 2. DECAYED_TOOTH: Angry Decayed Tooth with large U-shaped arch between downward roots (Must SLIDE under).
+ * 3. ROTATING_BUR: Giant Rotating Dental Bur Handpiece blocking the entire lane from ground up (Must CHANGE LANE / DODGE).
  */
 fun DrawScope.drawDentalObstacle(
     center: Offset,
     type: ObstacleType,
-    scale: Float
+    scale: Float,
+    toothBitmap: ImageBitmap,
+    gumBitmap: ImageBitmap,
+    burBitmap: ImageBitmap,
+    spinAngle: Float = 0f
 ) {
-    val r = 24f * scale
-
     when (type) {
-        ObstacleType.LOW_TRAY -> {
-            val tw = r * 2.6f
-            val th = r * 1.0f
-            drawRoundRect(
-                color = Color.Black.copy(alpha = 0.4f),
-                topLeft = Offset(center.x - tw / 2f + 4f, center.y + 4f),
-                size = Size(tw, th),
-                cornerRadius = CornerRadius(6f * scale, 6f * scale)
-            )
-            drawRoundRect(
-                brush = Brush.verticalGradient(
-                    colors = listOf(Color(0xFFCFD8DC), Color(0xFF90A4AE), Color(0xFF607D8B))
-                ),
-                topLeft = Offset(center.x - tw / 2f, center.y - th / 2f),
-                size = Size(tw, th),
-                cornerRadius = CornerRadius(6f * scale, 6f * scale)
-            )
-            drawLine(
-                color = Color(0xFF37474F),
-                start = Offset(center.x - tw * 0.35f, center.y),
-                end = Offset(center.x + tw * 0.35f, center.y),
-                strokeWidth = 3f * scale
-            )
-            drawCircle(Color(0xFF4CAF50), radius = 6f * scale, center = Offset(center.x, center.y - th * 0.8f))
+        ObstacleType.GUM_SOCKET -> {
+            // Compact cartoon-style Broken Gum with deep empty socket hole in center (Must JUMP over)
+            val obsW = (70f * scale).toInt().coerceAtLeast(1)
+            val obsH = (obsW * 346 / 548).coerceAtLeast(1)
+            val groundY = center.y + 10f * scale
+            val left = (center.x - obsW / 2f).toInt()
+            val top = (groundY - obsH).toInt()
 
-            drawIntoCanvas { canvas ->
-                val paint = Paint().apply {
-                    color = android.graphics.Color.WHITE
-                    textSize = 12f * scale
-                    isFakeBoldText = true
-                    textAlign = Paint.Align.CENTER
-                }
-                canvas.nativeCanvas.drawText("⬇️ SLIDE", center.x, center.y - th * 1.2f, paint)
-            }
+            // Ground contact drop shadow
+            drawOval(
+                color = Color.Black.copy(alpha = 0.35f),
+                topLeft = Offset(center.x - obsW * 0.52f, groundY - 4f * scale),
+                size = Size(obsW * 1.04f, 8f * scale)
+            )
+
+            drawImage(
+                image = gumBitmap,
+                dstOffset = IntOffset(left, top),
+                dstSize = IntSize(obsW, obsH),
+                filterQuality = FilterQuality.High
+            )
         }
 
-        ObstacleType.HIGH_LAMP -> {
-            val lampW = r * 2.4f
-            val lampH = r * 0.9f
-            val lampY = center.y - r * 1.8f
+        ObstacleType.DECAYED_TOOTH -> {
+            // Enlarged cartoon-style decayed tooth with wide and tall U-shaped root arch for clear sliding
+            val obsW = (112f * scale).toInt().coerceAtLeast(1)
+            val obsH = (obsW * 600 / 492).coerceAtLeast(1)
+            val groundY = center.y + 14f * scale
+            val left = (center.x - obsW / 2f).toInt()
+            val top = (groundY - obsH).toInt()
 
-            drawLine(
-                color = Color(0xFF78909C),
-                start = Offset(center.x - r * 1.5f, 0f),
-                end = Offset(center.x, lampY),
-                strokeWidth = 4f * scale
+            // Dual root tip drop shadows on asphalt
+            drawOval(
+                color = Color.Black.copy(alpha = 0.35f),
+                topLeft = Offset(center.x - obsW * 0.42f, groundY - 3f * scale),
+                size = Size(obsW * 0.30f, 7f * scale)
             )
-            drawRoundRect(
-                brush = Brush.verticalGradient(
-                    colors = listOf(Color(0xFFECEFF1), Color(0xFFB0BEC5))
-                ),
-                topLeft = Offset(center.x - lampW / 2f, lampY - lampH / 2f),
-                size = Size(lampW, lampH),
-                cornerRadius = CornerRadius(8f * scale, 8f * scale)
+            drawOval(
+                color = Color.Black.copy(alpha = 0.35f),
+                topLeft = Offset(center.x + obsW * 0.12f, groundY - 3f * scale),
+                size = Size(obsW * 0.30f, 7f * scale)
             )
-            drawCircle(Color(0xFFFFEE58), radius = 8f * scale, center = Offset(center.x, lampY))
 
-            drawIntoCanvas { canvas ->
-                val paint = Paint().apply {
-                    color = android.graphics.Color.YELLOW
-                    textSize = 12f * scale
-                    isFakeBoldText = true
-                    textAlign = Paint.Align.CENTER
-                }
-                canvas.nativeCanvas.drawText("⬆️ JUMP", center.x, lampY - lampH * 0.8f, paint)
-            }
+            drawImage(
+                image = toothBitmap,
+                dstOffset = IntOffset(left, top),
+                dstSize = IntSize(obsW, obsH),
+                filterQuality = FilterQuality.High
+            )
         }
 
-        ObstacleType.MOBILE_CART -> {
-            val cartW = r * 2.0f
-            val cartH = r * 2.4f
-            drawRoundRect(
-                brush = Brush.verticalGradient(
-                    colors = listOf(Color(0xFF0288D1), Color(0xFF01579B))
-                ),
-                topLeft = Offset(center.x - cartW / 2f, center.y - cartH / 2f),
-                size = Size(cartW, cartH),
-                cornerRadius = CornerRadius(8f * scale, 8f * scale)
-            )
-            drawIntoCanvas { canvas ->
-                val paint = Paint().apply {
-                    color = android.graphics.Color.WHITE
-                    textSize = 12f * scale
-                    isFakeBoldText = true
-                    textAlign = Paint.Align.CENTER
-                }
-                canvas.nativeCanvas.drawText("⬇️ SLIDE", center.x, center.y - cartH * 0.6f, paint)
-            }
-        }
+        ObstacleType.ROTATING_BUR -> {
+            // Giant rotating dental bur handpiece blocking the player's lane from the ground up (Must CHANGE LANE)
+            val obsW = (76f * scale).toInt().coerceAtLeast(1)
+            val obsH = (obsW * 600 / 388).coerceAtLeast(1)
+            val groundY = center.y + 12f * scale
+            val left = (center.x - obsW / 2f).toInt()
+            val top = (groundY - obsH).toInt()
 
-        ObstacleType.TOOTH_BARRIER -> {
-            val toothW = r * 2.2f
-            val toothH = r * 2.0f
-            drawRoundRect(
-                brush = Brush.verticalGradient(
-                    colors = listOf(Color(0xFFFFF9C4), Color(0xFFFFF59D), Color(0xFFEEEEEE))
-                ),
-                topLeft = Offset(center.x - toothW / 2f, center.y - toothH / 2f),
-                size = Size(toothW, toothH),
-                cornerRadius = CornerRadius(14f * scale, 14f * scale)
+            // Heavy base drop shadow
+            drawOval(
+                color = Color.Black.copy(alpha = 0.42f),
+                topLeft = Offset(center.x - obsW * 0.42f, groundY - 4f * scale),
+                size = Size(obsW * 0.84f, 8f * scale)
             )
-            drawIntoCanvas { canvas ->
-                val paint = Paint().apply {
-                    color = android.graphics.Color.YELLOW
-                    textSize = 12f * scale
-                    isFakeBoldText = true
-                    textAlign = Paint.Align.CENTER
-                }
-                canvas.nativeCanvas.drawText("⬆️ JUMP", center.x, center.y - toothH * 0.6f, paint)
+
+            drawImage(
+                image = burBitmap,
+                dstOffset = IntOffset(left, top),
+                dstSize = IntSize(obsW, obsH),
+                filterQuality = FilterQuality.High
+            )
+
+            // Dynamic spinning sparks & glowing rotation arcs near the bur head
+            val burHeadX = center.x - obsW * 0.25f
+            val burHeadY = top + obsH * 0.16f
+            val sparkRadius = 14f * scale
+            val rad = (spinAngle * PI / 180.0).toFloat()
+
+            // Subtle electric blue bur aura
+            drawCircle(
+                color = Color(0xFF00E5FF).copy(alpha = 0.25f),
+                radius = sparkRadius * 1.3f,
+                center = Offset(burHeadX, burHeadY)
+            )
+
+            // Rotating sparks
+            for (k in 0..2) {
+                val angleK = rad * 2f + k * (2f * PI.toFloat() / 3f)
+                val sx = burHeadX + cos(angleK) * sparkRadius
+                val sy = burHeadY + sin(angleK) * sparkRadius
+                drawCircle(
+                    color = Color(0xFFFF9100),
+                    radius = 2.5f * scale,
+                    center = Offset(sx, sy)
+                )
             }
         }
 

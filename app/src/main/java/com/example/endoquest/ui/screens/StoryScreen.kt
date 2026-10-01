@@ -150,19 +150,28 @@ fun StoryScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Top Scene Tag & Progress Indicators
+                // Top Scene Tag & Progress Indicators & Skip Button
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = currentScene.sceneTag,
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 1.5.sp
-                        ),
-                        color = Color(0xFF00E5FF)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = currentScene.sceneTag,
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.5.sp
+                            ),
+                            color = Color(0xFF00E5FF)
+                        )
+                        TextButton(onClick = onProceedToRunner) {
+                            Text("Skip ⏩", color = Color(0xFFFFD54F), fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
