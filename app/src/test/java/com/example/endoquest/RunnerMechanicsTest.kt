@@ -49,6 +49,39 @@ class RunnerMechanicsTest {
     }
 
     @Test
+    fun testDecayedToothTimingAndDepthProgression() {
+        // Simulates the obstacle loop logic:
+        fun evaluateObstacleEncounter(
+            depth: Float,
+            isDucking: Boolean
+        ): Pair<Boolean, Boolean> { // Pair(cleared, collision)
+            val cleared = isDucking && depth in 0.80f..0.98f
+            val collision = depth >= 0.90f && !isDucking
+            return Pair(cleared, collision)
+        }
+
+        // 1. Approaching tooth at depth 0.85f: player slides early/on-time -> Cleared, NO collision!
+        val (cleared1, collision1) = evaluateObstacleEncounter(depth = 0.85f, isDucking = true)
+        assertTrue("Sliding while tooth is approaching must clear it safely", cleared1)
+        assertFalse("Must not trigger collision when sliding as tooth approaches", collision1)
+
+        // 2. Approaching tooth at depth 0.85f: player hasn't slid yet -> Not cleared, but NO premature collision!
+        val (cleared2, collision2) = evaluateObstacleEncounter(depth = 0.85f, isDucking = false)
+        assertFalse("Not cleared yet before sliding", cleared2)
+        assertFalse("Must NOT register premature hit before tooth reaches player at depth 0.90f", collision2)
+
+        // 3. Tooth reaches player at depth 0.91f: player slides right on contact -> Cleared, NO collision!
+        val (cleared3, collision3) = evaluateObstacleEncounter(depth = 0.91f, isDucking = true)
+        assertTrue("Sliding right as tooth reaches player must clear it safely", cleared3)
+        assertFalse("Sliding at contact point must not trigger collision", collision3)
+
+        // 4. Tooth reaches player at depth 0.91f: player does not slide -> Collision!
+        val (cleared4, collision4) = evaluateObstacleEncounter(depth = 0.91f, isDucking = false)
+        assertFalse("Cannot clear tooth upright", cleared4)
+        assertTrue("Reaching tooth without sliding must trigger collision", collision4)
+    }
+
+    @Test
     fun testGumSocketJumpOverMechanic() {
         // Player jumps over: safe!
         assertFalse(

@@ -76,32 +76,36 @@ fun RunnerScreen(
 
     // Jump state animation (Subway Surfers style full rise and fall)
     val jumpAnim = remember { Animatable(0f) }
-    LaunchedEffect(viewModel.isJumping) {
-        if (viewModel.isJumping) {
+    LaunchedEffect(viewModel.jumpTrigger) {
+        if (viewModel.jumpTrigger > 0) {
+            jumpAnim.snapTo(0f)
             jumpAnim.animateTo(1f, animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing))
             jumpAnim.animateTo(0f, animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing))
             viewModel.resetJump()
-        } else {
-            jumpAnim.snapTo(0f)
         }
     }
 
     // Athletic slide-under-obstacle animation (850ms duration with low body drop and full obstacle clearance)
     val slideAnim = remember { Animatable(0f) }
-    LaunchedEffect(viewModel.isSliding) {
-        if (viewModel.isSliding) {
+    LaunchedEffect(viewModel.slideTrigger) {
+        if (viewModel.slideTrigger > 0) {
             slideAnim.snapTo(0f)
             slideAnim.animateTo(
                 targetValue = 1f,
                 animationSpec = tween(durationMillis = 850, easing = FastOutSlowInEasing)
             )
-            viewModel.resetActionState()
-        } else {
-            slideAnim.snapTo(0f)
+            viewModel.resetSlide()
         }
     }
 
-    val isDucking = viewModel.isSliding || slideAnim.value in 0.04f..0.96f
+    // Mid-air slide cancels jump and dives directly into a ground slide
+    LaunchedEffect(viewModel.isSliding) {
+        if (viewModel.isSliding) {
+            jumpAnim.snapTo(0f)
+        }
+    }
+
+    val isDucking = viewModel.isSliding || slideAnim.isRunning || slideAnim.value in 0.001f..0.999f
 
     // Dental Police inspection timer: exactly every 15 seconds (15s, 30s, 45s; max 3 encounters)
     LaunchedEffect(viewModel.isPoliceEncounterActive, viewModel.isRound1Complete, viewModel.runnerResetTrigger) {
@@ -184,6 +188,8 @@ fun RunnerScreen(
         obstacleSpawnTimer = 1.2f
         coinSpawnTimer = 0.3f
         refillGuaranteedQueue()
+        jumpAnim.snapTo(0f)
+        slideAnim.snapTo(0f)
     }
 
     // Main 3D perspective game loop
@@ -334,6 +340,9 @@ fun RunnerScreen(
                 }
             }
 
+            val isAirborneNow = viewModel.isJumping || jumpAnim.isRunning || jumpAnim.value > 0.15f
+            val isDuckingNow = viewModel.isSliding || slideAnim.isRunning || slideAnim.value in 0.001f..0.999f
+
             val updated = mutableListOf<RunnerItem>()
 
             for (item in items) {
@@ -342,43 +351,103 @@ fun RunnerScreen(
                 item.depth += baseSpeed * (dt * 60f).coerceIn(0.5f, 2.5f)
                 if (item.depth < 1.08f) {
                     val itemLaneX = (item.lane - 1).toFloat()
-                    val inRange = item.depth in 0.86f..0.98f && abs(itemLaneX - animatedLaneX) < 0.42f
+                    val sameLane = abs(itemLaneX - animatedLaneX) < 0.42f
 
-                    if (!viewModel.isPoliceEncounterActive && inRange) {
+                    if (!viewModel.isPoliceEncounterActive) {
                         if (item.isCoin) {
-                            val isAirborne = viewModel.isJumping || jumpAnim.value > 0.15f
-                            val isHighCoin = item.elevation > 0.30f
-                            val canCollect = if (isHighCoin) isAirborne else true
+                            val inCoinRange = item.depth in 0.84f..0.98f && sameLane
+                            if (inCoinRange && !item.cleared) {
+                                val isHighCoin = item.elevation > 0.30f
+                                val canCollect = if (isHighCoin) isAirborneNow else true
 
-                            if (canCollect && !item.cleared) {
-                                item.cleared = true
-                                viewModel.soundManager.playCoin()
-                                viewModel.addMoney(item.value)
+                                if (canCollect) {
+                                    item.cleared = true
+                                    viewModel.soundManager.playCoin()
+                                    viewModel.addMoney(item.value)
+                                } else {
+                                    updated.add(item)
+                                }
                             } else {
                                 updated.add(item)
                             }
                         } else {
                             if (!item.cleared) {
-                                val isAirborne = viewModel.isJumping || jumpAnim.value > 0.15f
-                                val isDuckingNow = isDucking
-                                val hit = when (item.obstacleType) {
-                                    ObstacleType.GUM_SOCKET -> !isAirborne   // Jump over it!
-                                    ObstacleType.DECAYED_TOOTH -> !isDuckingNow // Slide under it!
-                                    ObstacleType.ROTATING_BUR -> true        // Solid block! Must dodge lane!
-                                    ObstacleType.NONE -> false
-                                }
+                                if (sameLane) {
+                                    when (item.obstacleType) {
+                                        ObstacleType.DECAYED_TOOTH -> {
+                                            // Player slides under the hollow U-shaped root archway!
+                                            // If the player is sliding anytime while approaching or passing under (0.80f..0.98f),
+                                            // the tooth is successfully cleared!
+                                            if (isDuckingNow && item.depth in 0.80f..0.98f) {
+                                                item.cleared = true
+                                                updated.add(item)
+                                            } else if (item.depth >= 0.90f && !isDuckingNow) {
+                                                // Reached the tooth upright or jumped into the crown: COLLISION!
+                                                if (!isGameOverTriggered) {
+                                                    isGameOverTriggered = true
+                                                    viewModel.soundManager.playCollision()
+                                                    items = emptyList()
+                                                    onGameOver()
+                                                    break
+                                                }
+                                            } else {
+                                                // Approaching (< 0.90f); player can still slide on time
+                                                updated.add(item)
+                                            }
+                                        }
 
-                                if (hit && !isGameOverTriggered) {
-                                    isGameOverTriggered = true
-                                    viewModel.soundManager.playCollision()
-                                    items = emptyList()
-                                    onGameOver()
-                                    break
-                                } else if (!hit) {
-                                    item.cleared = true
+                                        ObstacleType.GUM_SOCKET -> {
+                                            // Player jumps over the deep socket hole!
+                                            // If the player is airborne while passing over (0.80f..0.98f),
+                                            // the socket is successfully cleared!
+                                            if (isAirborneNow && item.depth in 0.80f..0.98f) {
+                                                item.cleared = true
+                                                updated.add(item)
+                                            } else if (item.depth >= 0.90f && !isAirborneNow) {
+                                                // Reached socket hole on the ground without jumping: COLLISION!
+                                                if (!isGameOverTriggered) {
+                                                    isGameOverTriggered = true
+                                                    viewModel.soundManager.playCollision()
+                                                    items = emptyList()
+                                                    onGameOver()
+                                                    break
+                                                }
+                                            } else {
+                                                // Approaching (< 0.90f); player can still jump on time
+                                                updated.add(item)
+                                            }
+                                        }
+
+                                        ObstacleType.ROTATING_BUR -> {
+                                            // Solid bur drill blocking the lane! Must change lane!
+                                            if (item.depth >= 0.90f) {
+                                                // Reached the rotating bur in the same lane: COLLISION!
+                                                if (!isGameOverTriggered) {
+                                                    isGameOverTriggered = true
+                                                    viewModel.soundManager.playCollision()
+                                                    items = emptyList()
+                                                    onGameOver()
+                                                    break
+                                                }
+                                            } else {
+                                                // Approaching in same lane (< 0.90f); player can still switch lanes
+                                                updated.add(item)
+                                            }
+                                        }
+
+                                        ObstacleType.NONE -> {
+                                            updated.add(item)
+                                        }
+                                    }
+                                } else {
+                                    // Player dodged to an adjacent safe lane!
+                                    if (item.depth >= 0.92f) {
+                                        item.cleared = true
+                                    }
                                     updated.add(item)
                                 }
                             } else {
+                                // Already cleared, continues moving towards camera into foreground
                                 updated.add(item)
                             }
                         }
@@ -414,27 +483,26 @@ fun RunnerScreen(
                         if (!dragTriggered) {
                             accumulatedDragX += dragAmount.x
                             accumulatedDragY += dragAmount.y
-                            val threshold = 30f
-                            if (abs(accumulatedDragX) > abs(accumulatedDragY)) {
-                                if (accumulatedDragX > threshold) {
-                                    viewModel.moveRight()
-                                    dragTriggered = true
-                                    change.consume()
-                                } else if (accumulatedDragX < -threshold) {
-                                    viewModel.moveLeft()
-                                    dragTriggered = true
-                                    change.consume()
+                            val threshold = 22f
+                            val absX = abs(accumulatedDragX)
+                            val absY = abs(accumulatedDragY)
+
+                            if (absX >= threshold || absY >= threshold) {
+                                if (absY >= absX) {
+                                    if (accumulatedDragY > 0) {
+                                        viewModel.slide()
+                                    } else {
+                                        viewModel.jump()
+                                    }
+                                } else {
+                                    if (accumulatedDragX > 0) {
+                                        viewModel.moveRight()
+                                    } else {
+                                        viewModel.moveLeft()
+                                    }
                                 }
-                            } else {
-                                if (accumulatedDragY < -threshold) {
-                                    viewModel.jump()
-                                    dragTriggered = true
-                                    change.consume()
-                                } else if (accumulatedDragY > threshold) {
-                                    viewModel.slide()
-                                    dragTriggered = true
-                                    change.consume()
-                                }
+                                dragTriggered = true
+                                change.consume()
                             }
                         }
                     }

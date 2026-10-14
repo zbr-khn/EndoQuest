@@ -69,6 +69,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var isSliding by mutableStateOf(false)
         private set
+    var jumpTrigger by mutableIntStateOf(0)
+        private set
+    var slideTrigger by mutableIntStateOf(0)
+        private set
 
     var isPoliceEncounterActive by mutableStateOf(false)
         private set
@@ -107,6 +111,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (!isPoliceEncounterActive) {
             isSliding = false
             isJumping = true
+            jumpTrigger++
             soundManager.playJump()
         }
     }
@@ -115,6 +120,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (!isPoliceEncounterActive) {
             isJumping = false
             isSliding = true
+            slideTrigger++
             soundManager.playSlide()
         }
     }
@@ -126,6 +132,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resetJump() {
         isJumping = false
+    }
+
+    fun resetSlide() {
+        isSliding = false
     }
 
     fun resetRunner() {
