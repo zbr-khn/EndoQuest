@@ -22,7 +22,7 @@ class EndoQuestInstrumentedTest {
     @Test
     fun testApplicationContextAndPackage() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("Package name must match production applicationId", "com.example.endoquest", appContext.packageName)
+        assertEquals("Package name must match production applicationId", "io.github.zbr_khn.endoquest", appContext.packageName)
     }
 
     @Test

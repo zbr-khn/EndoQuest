@@ -10,7 +10,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.endoquest"
+        applicationId = "io.github.zbr_khn.endoquest"
         minSdk = 24
         targetSdk = 37
         versionCode = 1
