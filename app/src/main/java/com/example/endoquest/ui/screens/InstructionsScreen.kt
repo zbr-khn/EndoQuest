@@ -41,26 +41,26 @@ fun InstructionsScreen(
             InstructionCard(
                 step = "1",
                 emoji = "🏃‍♂️",
-                title = "3D Runner Controls",
-                description = "Swipe Left / Right to switch between the 3 lanes.\nSwipe Up to JUMP over empty gum sockets.\nSwipe Down to ROLL under giant decayed teeth.\nDodge giant rotating dental burs!"
+                title = "Round 1: 3D Highway Runner",
+                description = "Swipe Left / Right to switch between 3 lanes.\nSwipe Up to JUMP over empty gum sockets.\nSwipe Down to SLIDE under giant decayed teeth.\nDodge rotating burs! Officer Floss inspects every 15s (+$500 per correct answer)."
             )
 
             Spacer(modifier = Modifier.height(14.dp))
 
             InstructionCard(
                 step = "2",
-                emoji = "🪙",
-                title = "Economy & $25 Golden Coins",
-                description = "Every spinning metallic gold coin adds exactly $25 to your treatment fund. Collect 20 coins to hit $500 milestones, on your journey to the $5,000 RCT goal."
+                emoji = "🧩",
+                title = "Round 2: Three-Door Enamel Maze",
+                description = "Use the Virtual Touch Joystick at the bottom to navigate corridors. Evade the Pac-Man-style oral bacterium pursuer! Unlock Door 1, Door 2, and Door 3 to open the Exit Portal ($3,500 target balance)."
             )
 
             Spacer(modifier = Modifier.height(14.dp))
 
             InstructionCard(
                 step = "3",
-                emoji = "👮‍♂️",
-                title = "Dental Police Road Inspection",
-                description = "At $500, a Dental Police officer sprints onto the highway with a glowing stop baton! Pass the clinical inspection quiz to earn +$50 reward and an officer salute before resuming."
+                emoji = "🧟‍♂️",
+                title = "Round 3: Zombie Dental Combat",
+                description = "Face 3 persistent biofilm mutants (Dr. Decay, Tartar Titan, E. faecalis Overlord). Answer clinical questions within 15 seconds (+$500 each) to reach the full $5,000 clinic goal."
             )
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -68,8 +68,8 @@ fun InstructionsScreen(
             InstructionCard(
                 step = "4",
                 emoji = "🦷",
-                title = "5-Stage RCT Clinical Masterclass",
-                description = "Once $5,000 is collected, return to Dr. Smile. Complete the 5 clinical stages: Access Cavity Preparation, Working Length, Cleaning & Shaping, Obturation, and Final Restoration with interactive simulations!"
+                title = "Round 4: Clinical RCT Simulation",
+                description = "Enter Dr. Smile's operatory with zero quiz interruptions! Use the interactive procedure slider to execute chemo-mechanical debridement, apical irrigation, and Ca(OH)₂ medicament placement."
             )
 
             Spacer(modifier = Modifier.height(28.dp))
@@ -102,25 +102,27 @@ fun InstructionCard(step: String, emoji: String, title: String, description: Str
             verticalAlignment = Alignment.Top
         ) {
             Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF00E5FF),
-                modifier = Modifier.size(44.dp)
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFF00E5FF).copy(alpha = 0.15f),
+                modifier = Modifier.size(42.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(text = emoji, fontSize = 22.sp)
+                    Text(text = emoji, fontSize = 20.sp)
                 }
             }
+
             Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
+
+            Column {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White
+                    color = Color(0xFF80DEEA)
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = description,
-                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
+                    style = MaterialTheme.typography.bodySmall.copy(lineHeight = 20.sp),
                     color = Color.White.copy(alpha = 0.85f)
                 )
             }

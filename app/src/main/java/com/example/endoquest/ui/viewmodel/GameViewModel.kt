@@ -7,12 +7,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import com.example.endoquest.audio.SoundManager
+import com.example.endoquest.data.EndoQuestion
+import com.example.endoquest.data.QuestionRepository
 import com.example.endoquest.data.SampleData
 import com.example.endoquest.model.PlayerProgress
 import com.example.endoquest.model.QuizQuestion
 import com.example.endoquest.model.RCTStage
 import com.example.endoquest.model.RoundOverInfo
 import com.example.endoquest.model.RunQuizQuestion
+import java.util.LinkedList
+import java.util.Queue
+import kotlin.math.abs
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
     val soundManager = SoundManager(application)
@@ -21,7 +26,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     // =========================================================================
-    // ROUND 1: RUNNER + DENTAL POLICE STATE (12s intervals, max 3 questions, +$500)
+    // PER-RUN RANDOMIZED QUESTION PARTITION (Questions 1–20 from QuestionRepository)
+    // =========================================================================
+    var currentRunQuestionSet by mutableStateOf(QuestionRepository.createRandomizedRunSet())
+        private set
+
+    // Legacy fallback list for QuizScreen
+    val runnerQuestions: List<QuizQuestion>
+        get() = currentRunQuestionSet.allQuestions.map { it.toQuizQuestion(shuffleOptions = true) }
+
+    // =========================================================================
+    // ROUND 1: RUNNER + DENTAL POLICE STATE (15s intervals, exactly 3 questions, +$500)
     // =========================================================================
     var round1QuestionCount by mutableIntStateOf(0)
         private set
@@ -31,20 +46,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     var isRound1Complete by mutableStateOf(false)
         private set
 
-    val runnerQuestions: List<QuizQuestion> = SampleData.runEndodonticsQuestionPool.map { runQ ->
-        val correctIndex = runQ.rawOptions.indexOf(runQ.correctAnswerText).coerceAtLeast(0)
-        QuizQuestion(
-            id = runQ.id,
-            questionText = runQ.questionText,
-            options = runQ.rawOptions,
-            correctAnswerIndex = correctIndex,
-            explanation = runQ.explanation,
-            difficulty = runQ.difficulty,
-            category = runQ.category
-        )
-    }
+    val runQuestionPool: List<RunQuizQuestion>
+        get() = currentRunQuestionSet.round1RunnerQuestions.map { it.toRunQuizQuestion(shuffleOptions = false) }
 
-    val runQuestionPool: List<RunQuizQuestion> = SampleData.round1Questions
     val usedRunQuestionIds = mutableSetOf<String>()
 
     var currentRunQuestion by mutableStateOf<RunQuizQuestion?>(null)
@@ -142,7 +146,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         soundManager.playCoinCollection()
     }
 
-    // Legacy helper
     fun addMoney(amount: Int) {
         addCoinMoney(amount)
     }
@@ -154,11 +157,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         policeSprintProgress = 0f
         policeSaluting = false
 
-        // Pick next question from pool
-        val qIndex = round1QuestionCount.coerceIn(0, runQuestionPool.size - 1)
-        val picked = runQuestionPool[qIndex]
-        currentRunQuestion = picked
-        currentRunShuffledOptions = picked.rawOptions.shuffled()
+        // Pick next question from randomized Round 1 pool
+        val pool = currentRunQuestionSet.round1RunnerQuestions
+        val qIndex = round1QuestionCount.coerceIn(0, pool.size - 1)
+        val endoQ = pool[qIndex]
+        val shuffledOptions = endoQ.options.shuffled()
+
+        currentRunQuestion = endoQ.toRunQuizQuestion(false)
+        currentRunShuffledOptions = shuffledOptions.map { it.text }
         selectedRunOptionIndex = null
         runCheckpointPassed = null
 
@@ -175,6 +181,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         selectedRunOptionIndex = optionIndex
         val selectedText = currentRunShuffledOptions.getOrNull(optionIndex) ?: return
+        // Validates directly against stored answer text (independent of option letter or index)
         val isCorrect = selectedText == q.correctAnswerText
         runCheckpointPassed = isCorrect
 
@@ -234,7 +241,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // =========================================================================
-    // ROUND 2: DENTAL MAZE STATE (Dynamic reward to bring total to $3,500)
+    // ROUND 2: THREE-DOOR DENTAL MAZE WITH PAC-MAN BACTERIUM CHASE
     // =========================================================================
     val requiredRound2Money: Int
         get() = (3500 - progress.round1TotalMoney).coerceAtLeast(0)
@@ -244,8 +251,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     var playerMazeY by mutableIntStateOf(1)
         private set
 
-    val mazeQuestions: List<RunQuizQuestion> = SampleData.round2MazeQuestions
-    val mazeCheckpointsSolved = mutableSetOf<Int>()
+    // Bacterium pursuer position (starts at center corridor)
+    var bacteriumX by mutableIntStateOf(5)
+        private set
+    var bacteriumY by mutableIntStateOf(5)
+        private set
+    var isBacteriumActive by mutableStateOf(false)
+        private set
+    var bacteriumWarningActive by mutableStateOf(false)
+        private set
+
+    val mazeQuestions: List<RunQuizQuestion>
+        get() = currentRunQuestionSet.round2MazeQuestions.map { it.toRunQuizQuestion(false) }
+
+    val mazeCheckpointsSolved = mutableSetOf<Int>() // 0, 1, 2 for the 3 doors
 
     var currentMazeCheckpointIndex by mutableIntStateOf(-1)
         private set
@@ -262,7 +281,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     var isRound2Complete by mutableStateOf(false)
         private set
 
-    fun moveMaze(dx: Int, dy: Int, mazeGrid: Array<IntArray>, onTriggerCheckpoint: (Int) -> Unit, onReachExit: () -> Unit) {
+    fun moveMaze(
+        dx: Int,
+        dy: Int,
+        mazeGrid: Array<IntArray>,
+        onTriggerCheckpoint: (Int) -> Unit,
+        onReachExit: () -> Unit
+    ) {
         if (isMazeCheckpointActive || isRound2Complete) return
 
         val newX = playerMazeX + dx
@@ -270,20 +295,25 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         if (newY in mazeGrid.indices && newX in mazeGrid[0].indices) {
             val cell = mazeGrid[newY][newX]
-            // 0 = Path, 1 = Wall, 2 = Checkpoint 1, 3 = Checkpoint 2, 9 = Exit Portal
+            // 0 = Corridor, 1 = Enamel Wall, 2 = Door 1, 3 = Door 2, 4 = Door 3, 9 = Exit Portal
             if (cell != 1) {
                 playerMazeX = newX
                 playerMazeY = newY
                 soundManager.playFootstep()
 
+                // Check doors
                 if (cell == 2 && 0 !in mazeCheckpointsSolved) {
                     openMazeCheckpoint(0)
                     onTriggerCheckpoint(0)
                 } else if (cell == 3 && 1 !in mazeCheckpointsSolved) {
                     openMazeCheckpoint(1)
                     onTriggerCheckpoint(1)
+                } else if (cell == 4 && 2 !in mazeCheckpointsSolved) {
+                    openMazeCheckpoint(2)
+                    onTriggerCheckpoint(2)
                 } else if (cell == 9) {
-                    if (mazeCheckpointsSolved.size >= 2) {
+                    // Requires all 3 doors unlocked
+                    if (mazeCheckpointsSolved.size >= 3) {
                         completeRound2()
                         onReachExit()
                     }
@@ -292,11 +322,114 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun activateBacterium() {
+        isBacteriumActive = true
+    }
+
+    /**
+     * Executes one step of Pac-Man-style Breadth-First-Search (BFS) pathfinding
+     * for the dental bacterium through valid corridors respecting maze walls.
+     */
+    fun stepBacteriumTowardsPlayer(mazeGrid: Array<IntArray>, onCatchPlayer: () -> Unit) {
+        if (!isBacteriumActive || isMazeCheckpointActive || isRound2Complete) return
+
+        val targetX = playerMazeX
+        val targetY = playerMazeY
+        val startX = bacteriumX
+        val startY = bacteriumY
+
+        if (startX == targetX && startY == targetY) {
+            triggerBacteriumCatch(onCatchPlayer)
+            return
+        }
+
+        // BFS pathfinding to find the next move
+        val rows = mazeGrid.size
+        val cols = mazeGrid[0].size
+        val visited = Array(rows) { BooleanArray(cols) }
+        val parent = mutableMapOf<Pair<Int, Int>, Pair<Int, Int>>()
+        val queue: Queue<Pair<Int, Int>> = LinkedList()
+
+        val startNode = Pair(startX, startY)
+        queue.add(startNode)
+        visited[startY][startX] = true
+
+        val directions = listOf(Pair(0, -1), Pair(0, 1), Pair(-1, 0), Pair(1, 0))
+        var found = false
+
+        while (queue.isNotEmpty()) {
+            val curr = queue.poll() ?: break
+            if (curr.first == targetX && curr.second == targetY) {
+                found = true
+                break
+            }
+
+            for (dir in directions) {
+                val nx = curr.first + dir.first
+                val ny = curr.second + dir.second
+
+                if (ny in 0 until rows && nx in 0 until cols && !visited[ny][nx]) {
+                    val cell = mazeGrid[ny][nx]
+                    if (cell != 1) { // Walkable corridor / door / portal
+                        visited[ny][nx] = true
+                        val nextNode = Pair(nx, ny)
+                        parent[nextNode] = curr
+                        queue.add(nextNode)
+                    }
+                }
+            }
+        }
+
+        if (found) {
+            // Reconstruct path backward to get immediate next step from start
+            var step: Pair<Int, Int>? = Pair(targetX, targetY)
+            var nextStep = step
+
+            while (step != null && parent[step] != startNode && parent[step] != null) {
+                step = parent[step]
+                nextStep = step
+            }
+
+            if (step != null && parent[step] == startNode) {
+                bacteriumX = step.first
+                bacteriumY = step.second
+            } else if (nextStep != null) {
+                bacteriumX = nextStep.first
+                bacteriumY = nextStep.second
+            }
+        }
+
+        // Check if bacterium caught player
+        if (bacteriumX == playerMazeX && bacteriumY == playerMazeY) {
+            triggerBacteriumCatch(onCatchPlayer)
+        } else {
+            // Update proximity warning
+            val dist = abs(bacteriumX - playerMazeX) + abs(bacteriumY - playerMazeY)
+            bacteriumWarningActive = dist <= 3
+        }
+    }
+
+    private fun triggerBacteriumCatch(onCatchPlayer: () -> Unit) {
+        soundManager.playQuizError()
+        triggerRoundOver(
+            round = 2,
+            title = "Round 2 Over",
+            subtitle = "Overtaken by Oral Biofilm!",
+            reason = "The dental bacterium pursuer caught you inside the enamel corridors.",
+            explanation = "Persistent biofilms rapidly colonize untreated spaces. Swift debridement and safe navigation are paramount.",
+            targetRoute = "maze"
+        )
+        onCatchPlayer()
+    }
+
     fun openMazeCheckpoint(checkpointIndex: Int) {
         currentMazeCheckpointIndex = checkpointIndex
-        val q = mazeQuestions.getOrElse(checkpointIndex) { mazeQuestions.first() }
-        currentMazeQuestion = q
-        currentMazeShuffledOptions = q.rawOptions.shuffled()
+        val pool = currentRunQuestionSet.round2MazeQuestions
+        val endoQ = pool.getOrElse(checkpointIndex) { pool.first() }
+        val shuffledOptions = endoQ.options.shuffled()
+
+        currentMazeQuestion = endoQ.toRunQuizQuestion(false)
+        currentMazeShuffledOptions = shuffledOptions.map { it.text }
         selectedMazeOptionIndex = null
         mazeTimerSeconds = 15
         isMazeCheckpointActive = true
@@ -371,7 +504,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         soundManager.playQuizSuccess()
 
         val dynamicAward = requiredRound2Money
-        val newTotal = 3500 // Exactly $3,500
+        val newTotal = 3500 // Exactly $3,500 target balance
         progress = progress.copy(
             moneyCollected = newTotal,
             round2DynamicReward = dynamicAward,
@@ -385,7 +518,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val requiredRound3Money: Int
         get() = (5000 - progress.moneyCollected).coerceAtLeast(0) // $1,500
 
-    val zombieQuestions: List<RunQuizQuestion> = SampleData.round3ZombieQuestions
+    val zombieQuestions: List<RunQuizQuestion>
+        get() = currentRunQuestionSet.round3ZombieQuestions.map { it.toRunQuizQuestion(false) }
+
     var currentZombieIndex by mutableIntStateOf(0)
         private set
     var currentZombieQuestion by mutableStateOf<RunQuizQuestion?>(null)
@@ -406,11 +541,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadZombieQuestion(index: Int) {
-        if (index < zombieQuestions.size) {
+        val pool = currentRunQuestionSet.round3ZombieQuestions
+        if (index < pool.size) {
             currentZombieIndex = index
-            val q = zombieQuestions[index]
-            currentZombieQuestion = q
-            currentZombieShuffledOptions = q.rawOptions.shuffled()
+            val endoQ = pool[index]
+            val shuffledOptions = endoQ.options.shuffled()
+
+            currentZombieQuestion = endoQ.toRunQuizQuestion(false)
+            currentZombieShuffledOptions = shuffledOptions.map { it.text }
             selectedZombieOptionIndex = null
             zombieTimerSeconds = 15
         }
@@ -436,7 +574,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun submitZombieAnswer(optionIndex: Int, onRoundOver: () -> Unit, onNextZombie: () -> Unit, onAllCleared: () -> Unit) {
+    fun submitZombieAnswer(
+        optionIndex: Int,
+        onRoundOver: () -> Unit,
+        onNextZombie: () -> Unit,
+        onAllCleared: () -> Unit
+    ) {
         val q = currentZombieQuestion ?: return
         selectedZombieOptionIndex = optionIndex
         val selectedText = currentZombieShuffledOptions.getOrNull(optionIndex) ?: return
@@ -508,6 +651,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             else -> restartRound1()
         }
     }
+
     fun triggerRoundOver(
         round: Int,
         title: String,
@@ -528,7 +672,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun restartRound1() {
-        // Reset Round 1 progress: money resets to 0, questions count resets
         round1QuestionCount = 0
         isRound1Complete = false
         playerLane = 1
@@ -551,9 +694,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun restartRound2() {
-        // Reset Round 2: Money resets to Round 1 total
         playerMazeX = 1
         playerMazeY = 1
+        bacteriumX = 5
+        bacteriumY = 5
+        isBacteriumActive = false
+        bacteriumWarningActive = false
         mazeCheckpointsSolved.clear()
         currentMazeCheckpointIndex = -1
         currentMazeQuestion = null
@@ -571,7 +717,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun restartRound3() {
-        // Reset Round 3: Money resets to $3,500
         currentZombieIndex = 0
         currentZombieQuestion = null
         currentZombieShuffledOptions = emptyList()
@@ -587,7 +732,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // =========================================================================
-    // CLINICAL RCT STAGES (Unchanged 3 Educational Stages)
+    // CLINICAL RCT STAGES (Zero Quiz Questions, Hands-on Procedure Only)
     // =========================================================================
     var currentRctStageIndex by mutableIntStateOf(0)
         private set
@@ -628,6 +773,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         round1QuestionCount = 0
         isRound1Complete = false
         usedRunQuestionIds.clear()
+
+        // Generate a completely fresh randomized 20-question run set
+        currentRunQuestionSet = QuestionRepository.createRandomizedRunSet()
+
         restartRound1()
         restartRound2()
         restartRound3()

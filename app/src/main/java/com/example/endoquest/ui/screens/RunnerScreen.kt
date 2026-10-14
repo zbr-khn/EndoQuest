@@ -86,20 +86,22 @@ fun RunnerScreen(
         }
     }
 
-    // Acrobatic rolling animation state (720-degree forward somersault tumble over 750ms)
-    val rollAnim = remember { Animatable(0f) }
+    // Athletic slide-under-obstacle animation (850ms duration with low body drop and full obstacle clearance)
+    val slideAnim = remember { Animatable(0f) }
     LaunchedEffect(viewModel.isSliding) {
         if (viewModel.isSliding) {
-            rollAnim.snapTo(0f)
-            rollAnim.animateTo(
-                targetValue = 720f,
-                animationSpec = tween(durationMillis = 750, easing = LinearEasing)
+            slideAnim.snapTo(0f)
+            slideAnim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 850, easing = FastOutSlowInEasing)
             )
             viewModel.resetActionState()
         } else {
-            rollAnim.snapTo(0f)
+            slideAnim.snapTo(0f)
         }
     }
+
+    val isDucking = viewModel.isSliding || slideAnim.value in 0.04f..0.96f
 
     // Dental Police inspection timer: exactly every 15 seconds (15s, 30s, 45s; max 3 encounters)
     LaunchedEffect(viewModel.isPoliceEncounterActive, viewModel.isRound1Complete, viewModel.runnerResetTrigger) {
@@ -184,7 +186,7 @@ fun RunnerScreen(
         refillGuaranteedQueue()
     }
 
-    // Main 3D perspective game loop (Strictly gameplay driven, ZERO bottom buttons, 100% active collisions)
+    // Main 3D perspective game loop
     LaunchedEffect(viewModel.isPoliceEncounterActive, viewModel.runnerResetTrigger) {
         var lastTime = System.currentTimeMillis()
         while (!viewModel.isRound1Complete) {
@@ -196,12 +198,13 @@ fun RunnerScreen(
                 obstacleSpawnTimer -= dt
                 coinSpawnTimer -= dt
 
-                // 1. CONTROLLED OBSTACLE SPAWNER (Frequency: ~3.0s - 3.4s cadence for rhythmic, fair reaction windows)
+                // 1. LANE-BASED PLAYABLE OBSTACLE GENERATOR (Fair reaction windows: ~3.0s - 3.4s cadence)
                 if (obstacleSpawnTimer <= 0f) {
                     obstacleSpawnTimer = 3.0f + Random.nextFloat() * 0.4f
 
-                    // Guaranteed queue ensures all 3 appear first; subsequent obstacles are weighted/random
-                    val obsType = if (guaranteedObstacleQueue.isNotEmpty()) {
+                    // Guarantees all 3 obstacles appear first; subsequent waves use playable single or double patterns
+                    val baseDepth = 0.05f
+                    val primaryType = if (guaranteedObstacleQueue.isNotEmpty()) {
                         guaranteedObstacleQueue.removeAt(0)
                     } else {
                         listOf(
@@ -211,83 +214,96 @@ fun RunnerScreen(
                         ).random()
                     }
 
-                    val obsLane = Random.nextInt(3)
+                    val primaryLane = Random.nextInt(3)
                     val newItems = mutableListOf<RunnerItem>()
 
-                    when (obsType) {
-                        ObstacleType.DECAYED_TOOTH -> {
-                            // Decayed Tooth (Player must SLIDE under)
-                            val baseDepth = 0.06f
-                            newItems.add(
-                                RunnerItem(
-                                    id = nextItemId++,
-                                    lane = obsLane,
-                                    depth = baseDepth,
-                                    isCoin = false,
-                                    obstacleType = ObstacleType.DECAYED_TOOTH
-                                )
-                            )
-                            // Slide Guide Coins: Straight line directly underneath the tooth arch tunnel
-                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth + 0.08f, isCoin = true, elevation = 0f))
-                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth, isCoin = true, elevation = 0f))
-                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth - 0.08f, isCoin = true, elevation = 0f))
-                        }
+                    // 40% chance of double pattern only after guaranteed wave has been served
+                    val useDoublePattern = guaranteedObstacleQueue.isEmpty() && Random.nextFloat() < 0.40f
 
-                        ObstacleType.GUM_SOCKET -> {
-                            // Broken Gum / Socket (Player must JUMP over)
-                            val baseDepth = 0.06f
-                            newItems.add(
-                                RunnerItem(
-                                    id = nextItemId++,
-                                    lane = obsLane,
-                                    depth = baseDepth,
-                                    isCoin = false,
-                                    obstacleType = ObstacleType.GUM_SOCKET
+                    if (!useDoublePattern) {
+                        when (primaryType) {
+                            ObstacleType.DECAYED_TOOTH -> {
+                                newItems.add(
+                                    RunnerItem(
+                                        id = nextItemId++,
+                                        lane = primaryLane,
+                                        depth = baseDepth,
+                                        isCoin = false,
+                                        obstacleType = ObstacleType.DECAYED_TOOTH
+                                    )
                                 )
-                            )
-                            // Jump Arc Coins: Parabolic arc floating directly over the gum socket
-                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth + 0.08f, isCoin = true, elevation = 0.40f))
-                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth + 0.04f, isCoin = true, elevation = 0.75f))
-                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth, isCoin = true, elevation = 1.0f))
-                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth - 0.04f, isCoin = true, elevation = 0.75f))
-                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth - 0.08f, isCoin = true, elevation = 0.40f))
-                        }
-
-                        ObstacleType.ROTATING_BUR -> {
-                            // Giant Rotating Bur (Player must CHANGE LANE / DODGE)
-                            val baseDepth = 0.06f
-                            val safeLane = when (obsLane) {
-                                0 -> 1
-                                2 -> 1
-                                else -> if (Random.nextBoolean()) 0 else 2
+                                // Slide Guide Coins: Straight line directly underneath the tooth arch tunnel
+                                newItems.add(RunnerItem(id = nextItemId++, lane = primaryLane, depth = baseDepth + 0.08f, isCoin = true, elevation = 0f))
+                                newItems.add(RunnerItem(id = nextItemId++, lane = primaryLane, depth = baseDepth, isCoin = true, elevation = 0f))
+                                newItems.add(RunnerItem(id = nextItemId++, lane = primaryLane, depth = baseDepth - 0.08f, isCoin = true, elevation = 0f))
                             }
-                            newItems.add(
-                                RunnerItem(
-                                    id = nextItemId++,
-                                    lane = obsLane,
-                                    depth = baseDepth,
-                                    isCoin = false,
-                                    obstacleType = ObstacleType.ROTATING_BUR
+
+                            ObstacleType.GUM_SOCKET -> {
+                                newItems.add(
+                                    RunnerItem(
+                                        id = nextItemId++,
+                                        lane = primaryLane,
+                                        depth = baseDepth,
+                                        isCoin = false,
+                                        obstacleType = ObstacleType.GUM_SOCKET
+                                    )
                                 )
-                            )
-                            // Lane Dodge Guide Coins: leading into the open safe adjacent lane
-                            newItems.add(RunnerItem(id = nextItemId++, lane = obsLane, depth = baseDepth + 0.12f, isCoin = true, elevation = 0f))
-                            newItems.add(RunnerItem(id = nextItemId++, lane = safeLane, depth = baseDepth + 0.06f, isCoin = true, elevation = 0f))
-                            newItems.add(RunnerItem(id = nextItemId++, lane = safeLane, depth = baseDepth, isCoin = true, elevation = 0f))
-                            newItems.add(RunnerItem(id = nextItemId++, lane = safeLane, depth = baseDepth - 0.06f, isCoin = true, elevation = 0f))
+                                // Jump Arc Coins: Parabolic arc floating directly over the gum socket
+                                newItems.add(RunnerItem(id = nextItemId++, lane = primaryLane, depth = baseDepth + 0.08f, isCoin = true, elevation = 0.40f))
+                                newItems.add(RunnerItem(id = nextItemId++, lane = primaryLane, depth = baseDepth + 0.04f, isCoin = true, elevation = 0.75f))
+                                newItems.add(RunnerItem(id = nextItemId++, lane = primaryLane, depth = baseDepth, isCoin = true, elevation = 1.0f))
+                                newItems.add(RunnerItem(id = nextItemId++, lane = primaryLane, depth = baseDepth - 0.04f, isCoin = true, elevation = 0.75f))
+                                newItems.add(RunnerItem(id = nextItemId++, lane = primaryLane, depth = baseDepth - 0.08f, isCoin = true, elevation = 0.40f))
+                            }
+
+                            ObstacleType.ROTATING_BUR -> {
+                                val safeLane = when (primaryLane) {
+                                    0 -> 1
+                                    2 -> 1
+                                    else -> if (Random.nextBoolean()) 0 else 2
+                                }
+                                newItems.add(
+                                    RunnerItem(
+                                        id = nextItemId++,
+                                        lane = primaryLane,
+                                        depth = baseDepth,
+                                        isCoin = false,
+                                        obstacleType = ObstacleType.ROTATING_BUR
+                                    )
+                                )
+                                // Lane Dodge Guide Coins: leading into the open safe adjacent lane
+                                newItems.add(RunnerItem(id = nextItemId++, lane = primaryLane, depth = baseDepth + 0.12f, isCoin = true, elevation = 0f))
+                                newItems.add(RunnerItem(id = nextItemId++, lane = safeLane, depth = baseDepth + 0.06f, isCoin = true, elevation = 0f))
+                                newItems.add(RunnerItem(id = nextItemId++, lane = safeLane, depth = baseDepth, isCoin = true, elevation = 0f))
+                                newItems.add(RunnerItem(id = nextItemId++, lane = safeLane, depth = baseDepth - 0.06f, isCoin = true, elevation = 0f))
+                            }
+
+                            ObstacleType.NONE -> {}
+                        }
+                    } else {
+                        // Double Blocker Pattern: 2 lanes blocked, 1 lane guaranteed safe and open
+                        val openLane = Random.nextInt(3)
+                        val blockedLanes = (0..2).filter { it != openLane }
+
+                        for (lane in blockedLanes) {
+                            val type = if (Random.nextBoolean()) ObstacleType.ROTATING_BUR else ObstacleType.GUM_SOCKET
+                            newItems.add(RunnerItem(id = nextItemId++, lane = lane, depth = baseDepth, isCoin = false, obstacleType = type))
                         }
 
-                        ObstacleType.NONE -> {}
+                        // Open Lane Guide Coins
+                        newItems.add(RunnerItem(id = nextItemId++, lane = openLane, depth = baseDepth + 0.08f, isCoin = true, elevation = 0f))
+                        newItems.add(RunnerItem(id = nextItemId++, lane = openLane, depth = baseDepth, isCoin = true, elevation = 0f))
+                        newItems.add(RunnerItem(id = nextItemId++, lane = openLane, depth = baseDepth - 0.08f, isCoin = true, elevation = 0f))
                     }
 
                     items = items + newItems
                 }
 
-                // 2. IN-BETWEEN COIN FORMATIONS (Steady coin rhythm between obstacles)
+                // 2. IN-BETWEEN COIN FORMATIONS
                 if (coinSpawnTimer <= 0f) {
                     coinSpawnTimer = 1.3f + Random.nextFloat() * 0.4f
 
-                    // Avoid visual clutter directly atop horizon obstacles
+                    // Avoid clutter atop horizon obstacles
                     val canSpawnCoins = items.none { it.depth in -0.05f..0.15f }
                     if (canSpawnCoins) {
                         val cLane = Random.nextInt(3)
@@ -296,19 +312,16 @@ fun RunnerScreen(
 
                         when (pattern) {
                             0 -> {
-                                // 3 straight ground coins
                                 coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.10f, isCoin = true, elevation = 0f))
                                 coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.05f, isCoin = true, elevation = 0f))
                                 coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.00f, isCoin = true, elevation = 0f))
                             }
                             1 -> {
-                                // 3 airborne jump coins
                                 coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.08f, isCoin = true, elevation = 0.45f))
                                 coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.04f, isCoin = true, elevation = 0.85f))
                                 coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.00f, isCoin = true, elevation = 0.45f))
                             }
                             2 -> {
-                                // Gentle diagonal lane switch
                                 val nextLane = if (cLane == 0) 1 else if (cLane == 2) 1 else (if (Random.nextBoolean()) 0 else 2)
                                 coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.10f, isCoin = true, elevation = 0f))
                                 coinBurst.add(RunnerItem(id = nextItemId++, lane = cLane, depth = 0.05f, isCoin = true, elevation = 0f))
@@ -341,17 +354,16 @@ fun RunnerScreen(
                                 item.cleared = true
                                 viewModel.soundManager.playCoin()
                                 viewModel.addMoney(item.value)
-                                // Coin is collected, omit from updated list to remove from view
                             } else {
                                 updated.add(item)
                             }
                         } else {
                             if (!item.cleared) {
                                 val isAirborne = viewModel.isJumping || jumpAnim.value > 0.15f
-                                val isDucking = viewModel.isSliding
+                                val isDuckingNow = isDucking
                                 val hit = when (item.obstacleType) {
                                     ObstacleType.GUM_SOCKET -> !isAirborne   // Jump over it!
-                                    ObstacleType.DECAYED_TOOTH -> !isDucking // Slide under it!
+                                    ObstacleType.DECAYED_TOOTH -> !isDuckingNow // Slide under it!
                                     ObstacleType.ROTATING_BUR -> true        // Solid block! Must dodge lane!
                                     ObstacleType.NONE -> false
                                 }
@@ -363,7 +375,6 @@ fun RunnerScreen(
                                     onGameOver()
                                     break
                                 } else if (!hit) {
-                                    // Cleared! Mark as cleared so subsequent frames don't re-trigger collision
                                     item.cleared = true
                                     updated.add(item)
                                 }
@@ -379,7 +390,6 @@ fun RunnerScreen(
             if (!viewModel.isPoliceEncounterActive) {
                 items = updated
             } else {
-                // Clear immediate foreground obstacles while police inspection is active
                 items = items.filter { it.isCoin || it.depth < 0.40f }
             }
 
@@ -440,7 +450,7 @@ fun RunnerScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Top Bar: Money Counter & Sound Toggle ONLY (Zero bottom buttons)
+                // Top Bar: Money Counter & Inspections
                 Card(
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF161F30)),
@@ -508,7 +518,7 @@ fun RunnerScreen(
                     }
                 }
 
-                // 3D-PERSPECTIVE RUNNER ARENA CANVAS (Takes full remaining screen space)
+                // 3D-PERSPECTIVE RUNNER ARENA CANVAS
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -601,11 +611,9 @@ fun RunnerScreen(
                             drawLine(Color(0xFFFFD54F), Offset(currentLeft + laneW * 2f, dashY), Offset(currentLeft + laneW * 2f, dashY + dashHeight), (2f * s) * (0.5f + 1.2f * depthVal))
                         }
 
-                        // 6. DRAW ITEMS
-                        val sortedItems = items.sortedBy { it.depth }
-                        for (item in sortedItems) {
-                            if (item.depth < 0f) continue // Not yet visible over the horizon
-
+                        // Helper for drawing a single item
+                        fun drawRunnerItemInstance(item: RunnerItem) {
+                            if (item.depth < 0f) return
                             val depthSquared = item.depth
                             val currentY = horizonY + (bottomY - horizonY) * depthSquared
                             val currentRoadW = roadWidthTop + (roadWidthBottom - roadWidthTop) * depthSquared
@@ -619,7 +627,6 @@ fun RunnerScreen(
                                 val elevationOffset = item.elevation * (100f * scale * s)
                                 val coinY = bobY - elevationOffset
 
-                                // For airborne coins (e.g. jump arcs), draw ground shadow on asphalt
                                 if (item.elevation > 0.15f) {
                                     val shadowW = (13f * scale * s) * (1f - item.elevation * 0.30f)
                                     drawOval(
@@ -647,7 +654,21 @@ fun RunnerScreen(
                             }
                         }
 
-                        // 7. DENTAL POLICE OFFICER
+                        // Player constants
+                        val playerDepth = 0.92f
+                        val jumpYOffset = jumpAnim.value * (110f * s)
+                        val playerY = horizonY + (bottomY - horizonY) * playerDepth - jumpYOffset
+                        val roadWAtPlayer = roadWidthTop + (roadWidthBottom - roadWidthTop) * playerDepth
+                        val laneWAtPlayer = roadWAtPlayer / 3f
+                        val playerX = horizonX + (animatedLaneX * laneWAtPlayer)
+
+                        // 6a. DISTANT ITEMS (depth <= playerDepth)
+                        val distantItems = items.filter { it.depth <= playerDepth }.sortedBy { it.depth }
+                        for (item in distantItems) {
+                            drawRunnerItemInstance(item)
+                        }
+
+                        // 7. DENTAL POLICE OFFICER (Approaching in distance or intercepted)
                         if (viewModel.isPoliceEncounterActive) {
                             val policeDepth = 0.3f + 0.58f * viewModel.policeSprintProgress
                             val pCenter = horizonX
@@ -656,31 +677,31 @@ fun RunnerScreen(
                             drawDentalPoliceOfficer(Offset(pCenter, pY), pScale, viewModel.policeSaluting)
                         }
 
-                        // 8. PROMINENT HUMAN PLAYER CHARACTER: ALEX
-                        val playerDepth = 0.92f
-                        val jumpYOffset = jumpAnim.value * (110f * s)
-                        val playerY = horizonY + (bottomY - horizonY) * playerDepth - jumpYOffset
-                        val roadWAtPlayer = roadWidthTop + (roadWidthBottom - roadWidthTop) * playerDepth
-                        val laneWAtPlayer = roadWAtPlayer / 3f
-                        val playerX = horizonX + (animatedLaneX * laneWAtPlayer)
-
-                        // Ground shadow
+                        // 8. PROMINENT HUMAN PLAYER CHARACTER: ALEX (Drawn at depth 0.92f)
                         val shadowScale = (1f - jumpAnim.value * 0.45f) * s
-                        val shadowY = horizonY + (bottomY - horizonY) * playerDepth + (if (viewModel.isSliding) 12f * s else 18f * s)
+                        val shadowY = horizonY + (bottomY - horizonY) * playerDepth + (if (isDucking) 24f * s else 28f * s)
                         drawOval(
                             Color.Black.copy(alpha = 0.42f),
-                            Offset(playerX - (if (viewModel.isSliding) 24f else 30f) * shadowScale, shadowY - 8f * shadowScale),
-                            Size((if (viewModel.isSliding) 48f else 60f) * shadowScale, 16f * shadowScale)
+                            Offset(playerX - (if (isDucking) 26f else 30f) * shadowScale, shadowY - 8f * shadowScale),
+                            Size((if (isDucking) 52f else 60f) * shadowScale, 16f * shadowScale)
                         )
 
                         drawAlexPlayerCharacter(
                             center = Offset(playerX, playerY),
                             frame = runFrame,
                             isJumping = viewModel.isJumping || jumpAnim.value > 0.05f,
-                            isSliding = viewModel.isSliding,
-                            rollAngle = rollAnim.value,
+                            isSliding = isDucking,
+                            slideProgress = slideAnim.value,
                             scale = s * 1.12f
                         )
+
+                        // 6b. FOREGROUND ITEMS (depth > playerDepth: passing OVER/PAST player towards camera)
+                        // When Decayed Tooth is in foreground, its transparent archway allows Alex underneath
+                        // to remain visible while the tooth crown and roots correctly occlude background
+                        val foregroundItems = items.filter { it.depth > playerDepth }.sortedBy { it.depth }
+                        for (item in foregroundItems) {
+                            drawRunnerItemInstance(item)
+                        }
                     }
 
                     // Milestone Toast
@@ -702,7 +723,7 @@ fun RunnerScreen(
                 }
             }
 
-            // ROUND 1 COMPLETE CELEBRATION MODAL
+            // ROUND 1 COMPLETE MODAL
             if (viewModel.isRound1Complete) {
                 Box(
                     modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)).padding(24.dp),
@@ -748,13 +769,13 @@ fun RunnerScreen(
                                         Text("$${viewModel.progress.round1CoinEarnings}", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = Color(0xFFFFD700))
                                     }
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Police Inspections (3/3):", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
-                                        Text("+$1,500", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = Color(0xFF00E5FF))
+                                        Text("Police Inspections Passed:", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
+                                        Text("${viewModel.progress.round1QuestionsCorrect}/3 (+$${viewModel.progress.round1QuestionsCorrect * 500})", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = Color(0xFF00E5FF))
                                     }
                                     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.2f)))
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Total Round 1 Funds:", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = Color.White)
-                                        Text("$${viewModel.progress.moneyCollected}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = Color(0xFFFFD700))
+                                        Text("Round 1 Total Money:", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = Color.White)
+                                        Text("$${viewModel.progress.round1TotalMoney}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = Color(0xFFFFD700))
                                     }
                                 }
                             }
@@ -765,80 +786,106 @@ fun RunnerScreen(
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
                             ) {
-                                Text("Proceed to Round 2: Dental Maze ➡️", fontWeight = FontWeight.ExtraBold, color = Color.Black)
+                                Text("Proceed to Round 2: Three-Door Maze 🧩➡️", fontWeight = FontWeight.ExtraBold, color = Color.Black)
                             }
                         }
                     }
                 }
             }
 
-            // DENTAL POLICE PHYSICAL ENCOUNTER & INSPECTION DIALOGUE OVERLAY
-            if (viewModel.isPoliceEncounterActive && viewModel.policeSprintProgress >= 0.80f) {
+            // DENTAL POLICE INSPECTION MODAL (at 15s, 30s, 45s)
+            if (viewModel.isPoliceEncounterActive && viewModel.policeSprintProgress >= 0.95f) {
                 val currentQ = viewModel.currentRunQuestion
                 val shuffledOptions = viewModel.currentRunShuffledOptions
+                val passed = viewModel.runCheckpointPassed
 
                 if (currentQ != null) {
                     Box(
-                        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.82f)).padding(18.dp),
+                        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)).padding(18.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Card(
                             shape = RoundedCornerShape(26.dp),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF131B2A)),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 14.dp),
                             modifier = Modifier.fillMaxWidth().wrapContentHeight()
                         ) {
-                            Column(modifier = Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(text = "🚨👮‍♂️", fontSize = 28.sp)
-                                    Column {
-                                        Text("DENTAL HIGHWAY PATROL (INSPECTION ${viewModel.round1QuestionCount + 1} OF 3)", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = Color(0xFFFF5252))
-                                        Text("Officer Floss: \"Halt! Endodontic Inspection! (+$500 on pass)\"", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFFD54F))
+                            Column(
+                                modifier = Modifier.padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(text = "👮‍♂️", fontSize = 28.sp)
+                                        Column {
+                                            Text(
+                                                text = "OFFICER FLOSS INSPECTION ${viewModel.round1QuestionCount + 1}/3",
+                                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                                                color = Color(0xFF00E5FF)
+                                            )
+                                            Text("Clinical Highway Checkpoint (+ $500)", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFFD700))
+                                        }
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(14.dp))
 
-                                Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2838)), modifier = Modifier.fillMaxWidth()) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Text("Category: ${currentQ.category} (${currentQ.difficulty})", style = MaterialTheme.typography.labelSmall, color = Color(0xFF80DEEA))
+                                Card(
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E2838)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Text(
+                                            text = "Category: ${currentQ.category}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFF80DEEA)
+                                        )
                                         Spacer(modifier = Modifier.height(4.dp))
-                                        Text(currentQ.questionText, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = Color.White)
+                                        Text(
+                                            text = currentQ.questionText,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = Color.White
+                                        )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(10.dp))
+                                Spacer(modifier = Modifier.height(14.dp))
 
                                 val prefixes = listOf("A. ", "B. ", "C. ", "D. ")
-                                val isAnswered = viewModel.runCheckpointPassed != null
-                                val isPassed = viewModel.runCheckpointPassed == true
-                                val selectedIndex = viewModel.selectedRunOptionIndex
-
-                                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
                                     shuffledOptions.forEachIndexed { idx, optText ->
-                                        val isThisSelected = selectedIndex == idx
-                                        val isThisCorrect = optText == currentQ.correctAnswerText
-
+                                        val isSelected = viewModel.selectedRunOptionIndex == idx
                                         val btnColor = when {
-                                            isAnswered && isThisCorrect -> Color(0xFF2E7D32)
-                                            isAnswered && isThisSelected && !isThisCorrect -> Color(0xFFC62828)
+                                            passed == true && isSelected -> Color(0xFF2E7D32)
+                                            passed == false && isSelected -> Color(0xFFC62828)
+                                            isSelected -> Color(0xFF0288D1)
                                             else -> Color(0xFF243044)
                                         }
 
-                                        val letterPrefix = prefixes.getOrElse(idx) { "" }
-
                                         Button(
                                             onClick = {
-                                                if (!isPassed) {
+                                                if (passed == null) {
                                                     viewModel.submitRunQuizAnswer(idx, onRoundOver = onRoundOver)
                                                 }
                                             },
-                                            modifier = Modifier.fillMaxWidth().height(46.dp),
+                                            enabled = passed == null,
+                                            modifier = Modifier.fillMaxWidth().height(48.dp),
                                             shape = RoundedCornerShape(12.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = btnColor, contentColor = Color.White)
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = btnColor,
+                                                contentColor = Color.White
+                                            )
                                         ) {
                                             Text(
-                                                text = letterPrefix + optText,
+                                                text = prefixes.getOrElse(idx) { "" } + optText,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 textAlign = TextAlign.Center
                                             )
@@ -846,52 +893,37 @@ fun RunnerScreen(
                                     }
                                 }
 
-                                if (isAnswered) {
-                                    Spacer(modifier = Modifier.height(12.dp))
+                                if (passed == true) {
+                                    Spacer(modifier = Modifier.height(14.dp))
                                     Card(
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = if (isPassed) Color(0xFF1B5E20) else Color(0xFFB71C1C)
-                                        ),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1B5E20)),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Column(modifier = Modifier.padding(12.dp)) {
                                             Text(
-                                                text = if (isPassed) "✅ INSPECTION PASSED! Officer Salutes: +$500 Reward!"
-                                                       else "❌ INCORRECT ANSWER! Round Over!",
+                                                text = "✅ Inspection Passed! +$500 Added!",
                                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                                color = Color.White
+                                                color = Color(0xFFFFD700)
                                             )
                                             Spacer(modifier = Modifier.height(4.dp))
-                                            Text(currentQ.explanation, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.9f))
+                                            Text(
+                                                text = currentQ.explanation,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color.White.copy(alpha = 0.9f)
+                                            )
                                         }
                                     }
 
-                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Spacer(modifier = Modifier.height(14.dp))
 
-                                    if (isPassed) {
-                                        if (viewModel.round1QuestionCount >= 3) {
-                                            Button(
-                                                onClick = onProceedToMaze,
-                                                modifier = Modifier.fillMaxWidth().height(48.dp),
-                                                shape = RoundedCornerShape(14.dp),
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
-                                            ) {
-                                                Text("All 3 Passed! Proceed to Maze ➡️", fontWeight = FontWeight.ExtraBold, color = Color.Black)
-                                            }
-                                        } else {
-                                            Button(
-                                                onClick = {
-                                                    items = items.filter { it.isCoin || it.depth < 0.40f }
-                                                    viewModel.resumeRunnerFromPolice()
-                                                },
-                                                modifier = Modifier.fillMaxWidth().height(48.dp),
-                                                shape = RoundedCornerShape(14.dp),
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
-                                            ) {
-                                                Text("Officer Salutes: Resume 3D Runner! 🏃‍♂️💨", fontWeight = FontWeight.ExtraBold, color = Color.Black)
-                                            }
-                                        }
+                                    Button(
+                                        onClick = { viewModel.resumeRunnerFromPolice() },
+                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF))
+                                    ) {
+                                        Text("Resume Highway Run 🏃‍♂️💨", fontWeight = FontWeight.ExtraBold, color = Color.Black)
                                     }
                                 }
                             }
@@ -904,74 +936,63 @@ fun RunnerScreen(
 }
 
 /**
- * Renders a recognized metallic golden coin with spinning 3D perspective and "$25" denomination.
+ * Draws 3D Metallic Gold Coins with edge bevels and dollar embossing.
  */
 fun DrawScope.draw3DMetallicGoldCoin(
     center: Offset,
     scale: Float,
     spinAngle: Float
 ) {
-    val radius = 24f * scale
-    val rad = Math.toRadians(spinAngle.toDouble())
-    val cosAngle = abs(cos(rad)).toFloat().coerceIn(0.12f, 1f)
-
-    val coinW = radius * cosAngle
-    val coinH = radius
+    val r = 13f * scale
+    val normAngle = (spinAngle % 180f) / 180f
+    val cosVal = abs(cos(normAngle * PI.toFloat()))
+    val coinW = (r * 2f * (0.15f + 0.85f * cosVal)).coerceAtLeast(2f)
 
     drawOval(
         brush = Brush.horizontalGradient(
-            colors = listOf(Color(0xFFFFD54F), Color(0xFFFFB300), Color(0xFFFFA000)),
-            startX = center.x - coinW,
-            endX = center.x + coinW
+            colors = listOf(Color(0xFFE65100), Color(0xFFFF8F00), Color(0xFFFFB300)),
+            startX = center.x - coinW / 2f - 2f * scale,
+            endX = center.x + coinW / 2f + 2f * scale
         ),
-        topLeft = Offset(center.x - coinW, center.y - coinH),
-        size = Size(coinW * 2f, coinH * 2f)
+        topLeft = Offset(center.x - coinW / 2f - 1.5f * scale, center.y - r),
+        size = Size(coinW + 3f * scale, r * 2f)
     )
 
-    if (cosAngle > 0.35f) {
-        val innerW = coinW * 0.8f
-        val innerH = coinH * 0.8f
-        drawOval(
-            color = Color(0xFFFFE082),
-            topLeft = Offset(center.x - innerW, center.y - innerH),
-            size = Size(innerW * 2f, innerH * 2f)
-        )
-        drawOval(
-            color = Color(0xFFFFC107),
-            topLeft = Offset(center.x - innerW * 0.9f, center.y - innerH * 0.9f),
-            size = Size(innerW * 1.8f, innerH * 1.8f)
-        )
+    drawOval(
+        brush = Brush.radialGradient(
+            colors = listOf(Color(0xFFFFF9C4), Color(0xFFFFD54F), Color(0xFFFF8F00)),
+            center = Offset(center.x - coinW * 0.2f, center.y - r * 0.2f),
+            radius = r * 1.2f
+        ),
+        topLeft = Offset(center.x - coinW / 2f, center.y - r),
+        size = Size(coinW, r * 2f)
+    )
 
-        if (cosAngle > 0.45f) {
-            drawIntoCanvas { canvas ->
-                val paint = Paint().apply {
-                    color = android.graphics.Color.rgb(100, 55, 0)
-                    textSize = 15f * scale
-                    isFakeBoldText = true
-                    textAlign = Paint.Align.CENTER
-                }
-                canvas.nativeCanvas.drawText(
-                    "$25",
-                    center.x,
-                    center.y + (5f * scale),
-                    paint
-                )
-            }
-        }
+    if (coinW > r * 0.8f) {
+        drawOval(
+            color = Color(0xFFFFF176).copy(alpha = 0.7f),
+            topLeft = Offset(center.x - coinW * 0.35f, center.y - r * 0.7f),
+            size = Size(coinW * 0.7f, r * 1.4f),
+            style = Stroke(width = 1.5f * scale)
+        )
     }
 
-    drawCircle(
-        color = Color.White.copy(alpha = 0.85f),
-        radius = 3.5f * scale,
-        center = Offset(center.x - coinW * 0.5f, center.y - coinH * 0.5f)
-    )
+    if (coinW > r * 1.1f) {
+        drawIntoCanvas { canvas ->
+            val paint = Paint().apply {
+                color = android.graphics.Color.WHITE
+                textSize = r * 1.2f
+                textAlign = Paint.Align.CENTER
+                isFakeBoldText = true
+                alpha = 230
+            }
+            canvas.nativeCanvas.drawText("$", center.x, center.y + r * 0.42f, paint)
+        }
+    }
 }
 
 /**
- * Renders the 3 custom cartoon dental obstacles:
- * 1. GUM_SOCKET: Broken Gum / Empty Socket sitting directly on asphalt (Must JUMP over).
- * 2. DECAYED_TOOTH: Angry Decayed Tooth with large U-shaped arch between downward roots (Must SLIDE under).
- * 3. ROTATING_BUR: Giant Rotating Dental Bur Handpiece blocking the entire lane from ground up (Must CHANGE LANE / DODGE).
+ * Draws the 3 cartoon obstacles with ground alignment and drop shadows.
  */
 fun DrawScope.drawDentalObstacle(
     center: Offset,
@@ -984,14 +1005,12 @@ fun DrawScope.drawDentalObstacle(
 ) {
     when (type) {
         ObstacleType.GUM_SOCKET -> {
-            // Compact cartoon-style Broken Gum with deep empty socket hole in center (Must JUMP over)
-            val obsW = (70f * scale).toInt().coerceAtLeast(1)
+            val obsW = (74f * scale).toInt().coerceAtLeast(1)
             val obsH = (obsW * 346 / 548).coerceAtLeast(1)
-            val groundY = center.y + 10f * scale
+            val groundY = center.y + 54f * scale
             val left = (center.x - obsW / 2f).toInt()
             val top = (groundY - obsH).toInt()
 
-            // Ground contact drop shadow
             drawOval(
                 color = Color.Black.copy(alpha = 0.35f),
                 topLeft = Offset(center.x - obsW * 0.52f, groundY - 4f * scale),
@@ -1007,14 +1026,14 @@ fun DrawScope.drawDentalObstacle(
         }
 
         ObstacleType.DECAYED_TOOTH -> {
-            // Massive cartoon-style decayed tooth with towering crown and cavernous U-shaped root arch for clear somersault rolling
+            // Massive cartoon-style decayed tooth with towering crown and cavernous U-shaped root arch
+            // Root archway clearance is 84f * scale above the asphalt contact line
             val obsW = (165f * scale).toInt().coerceAtLeast(1)
             val obsH = (obsW * 600 / 492).coerceAtLeast(1)
-            val groundY = center.y + 16f * scale
+            val groundY = center.y + 54f * scale
             val left = (center.x - obsW / 2f).toInt()
             val top = (groundY - obsH).toInt()
 
-            // Dual root tip drop shadows on asphalt
             drawOval(
                 color = Color.Black.copy(alpha = 0.40f),
                 topLeft = Offset(center.x - obsW * 0.46f, groundY - 4f * scale),
@@ -1035,14 +1054,12 @@ fun DrawScope.drawDentalObstacle(
         }
 
         ObstacleType.ROTATING_BUR -> {
-            // Giant rotating dental bur handpiece blocking the player's lane from the ground up (Must CHANGE LANE)
             val obsW = (76f * scale).toInt().coerceAtLeast(1)
             val obsH = (obsW * 600 / 388).coerceAtLeast(1)
-            val groundY = center.y + 12f * scale
+            val groundY = center.y + 54f * scale
             val left = (center.x - obsW / 2f).toInt()
             val top = (groundY - obsH).toInt()
 
-            // Heavy base drop shadow
             drawOval(
                 color = Color.Black.copy(alpha = 0.42f),
                 topLeft = Offset(center.x - obsW * 0.42f, groundY - 4f * scale),
@@ -1056,20 +1073,17 @@ fun DrawScope.drawDentalObstacle(
                 filterQuality = FilterQuality.High
             )
 
-            // Dynamic spinning sparks & glowing rotation arcs near the bur head
             val burHeadX = center.x - obsW * 0.25f
             val burHeadY = top + obsH * 0.16f
             val sparkRadius = 14f * scale
             val rad = (spinAngle * PI / 180.0).toFloat()
 
-            // Subtle electric blue bur aura
             drawCircle(
                 color = Color(0xFF00E5FF).copy(alpha = 0.25f),
                 radius = sparkRadius * 1.3f,
                 center = Offset(burHeadX, burHeadY)
             )
 
-            // Rotating sparks
             for (k in 0..2) {
                 val angleK = rad * 2f + k * (2f * PI.toFloat() / 3f)
                 val sx = burHeadX + cos(angleK) * sparkRadius
@@ -1198,15 +1212,16 @@ fun DrawScope.drawDentalPoliceOfficer(
 }
 
 /**
- * Renders prominent protagonist Alex with dynamic running animation frames, teal scrubs, hair, and stethoscope.
- * When sliding/rolling (isSliding = true), Alex executes an athletic forward somersault roll directly underneath obstacles.
+ * Renders protagonist Alex.
+ * When sliding (isSliding = true), Alex executes an athletic runner slide dropping their entire body flat
+ * onto the road surface, ensuring head, hair, torso, arms, and legs pass completely clear under obstacle archways.
  */
 fun DrawScope.drawAlexPlayerCharacter(
     center: Offset,
     frame: Int,
     isJumping: Boolean,
     isSliding: Boolean,
-    rollAngle: Float = 0f,
+    slideProgress: Float = 0f,
     scale: Float = 1f
 ) {
     val skinColor = Color(0xFFFFCC80)
@@ -1216,124 +1231,116 @@ fun DrawScope.drawAlexPlayerCharacter(
     val shoeWhite = Color(0xFFFAFAFA)
     val shoeSole = Color(0xFF0288D1)
 
-    if (isSliding) {
-        // ==========================================
-        // ACROBATIC SOMERSAULT FORWARD ROLL
-        // ==========================================
-        // Alex curls into an agile tumbling ball tucked right against the road surface
-        val rollCenter = Offset(center.x, center.y + 4f * scale)
-        val ballRadius = 22f * scale
+    val asphaltY = center.y + 54f * scale
 
-        // Trailing speed blur streaks behind the tumbling character
+    if (isSliding) {
+        // =========================================================================
+        // ATHLETIC LOW GROUND SLIDE (Passing completely under archway without clipping)
+        // Highest point is only ~26f * scale above asphalt (clearance is 84f * scale)
+        // =========================================================================
+        val slideCenter = Offset(center.x, asphaltY - 14f * scale)
+
+        // Trailing speed blur streaks along the asphalt
         for (i in -1..1) {
-            val streakY = rollCenter.y + (i * 9f * scale)
+            val streakY = slideCenter.y + (i * 6f * scale)
             drawLine(
-                color = Color.White.copy(alpha = 0.45f),
-                start = Offset(rollCenter.x - 34f * scale, streakY),
-                end = Offset(rollCenter.x - 14f * scale, streakY),
+                color = Color.White.copy(alpha = 0.5f),
+                start = Offset(slideCenter.x - 38f * scale, streakY),
+                end = Offset(slideCenter.x - 16f * scale, streakY),
                 strokeWidth = 2.5f * scale,
                 cap = StrokeCap.Round
             )
         }
 
-        // Road friction dust puffs
+        // Road friction dust puffs kicking behind
         drawCircle(
             color = Color(0xFFB0BEC5).copy(alpha = 0.5f),
-            radius = 6f * scale,
-            center = Offset(rollCenter.x - 18f * scale, rollCenter.y + 16f * scale)
+            radius = 5f * scale,
+            center = Offset(slideCenter.x - 22f * scale, asphaltY - 4f * scale)
         )
         drawCircle(
             color = Color(0xFFCFD8DC).copy(alpha = 0.4f),
-            radius = 4f * scale,
-            center = Offset(rollCenter.x - 26f * scale, rollCenter.y + 14f * scale)
+            radius = 3.5f * scale,
+            center = Offset(slideCenter.x - 32f * scale, asphaltY - 6f * scale)
         )
 
-        // Rotate the tucked tumbling character around its center
-        withTransform({
-            rotate(degrees = rollAngle, pivot = rollCenter)
-        }) {
-            // Outer motion spin blur ring
-            drawCircle(
-                color = Color(0xFF00E5FF).copy(alpha = 0.22f),
-                radius = ballRadius * 1.15f,
-                center = rollCenter
-            )
+        // 1. Sliding Legs & Sneakers (Extended flat along asphalt)
+        val legLeftX = slideCenter.x - 24f * scale
+        val legRightX = slideCenter.x + 2f * scale
+        val legY = asphaltY - 6f * scale
 
-            // 1. Tucked Torso (Curled scrub sphere)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0xFF00ACC1), scrubTeal, Color(0xFF006064)),
-                    center = rollCenter,
-                    radius = ballRadius
-                ),
-                radius = ballRadius,
-                center = rollCenter
-            )
+        drawLine(
+            color = scrubPant,
+            start = Offset(slideCenter.x - 6f * scale, slideCenter.y + 2f * scale),
+            end = Offset(legLeftX, legY),
+            strokeWidth = 8f * scale,
+            cap = StrokeCap.Round
+        )
+        drawRoundRect(
+            color = shoeWhite,
+            topLeft = Offset(legLeftX - 14f * scale, legY - 4f * scale),
+            size = Size(16f * scale, 8f * scale),
+            cornerRadius = CornerRadius(3f * scale, 3f * scale)
+        )
+        drawLine(
+            color = shoeSole,
+            start = Offset(legLeftX - 14f * scale, legY + 4f * scale),
+            end = Offset(legLeftX + 2f * scale, legY + 4f * scale),
+            strokeWidth = 2.5f * scale
+        )
 
-            // Stethoscope tubing curled inside tuck
-            drawCircle(
-                color = Color(0xFFB0BEC5),
-                radius = ballRadius * 0.72f,
-                center = rollCenter,
-                style = Stroke(width = 3f * scale)
-            )
+        // 2. Horizontal Sliding Torso (Teal scrubs flat above road)
+        drawRoundRect(
+            color = scrubTeal,
+            topLeft = Offset(slideCenter.x - 12f * scale, slideCenter.y - 10f * scale),
+            size = Size(26f * scale, 18f * scale),
+            cornerRadius = CornerRadius(6f * scale, 6f * scale)
+        )
 
-            // 2. Tucked Head (Positioned forward/down in tuck)
-            val headCenter = Offset(rollCenter.x + 8f * scale, rollCenter.y - 6f * scale)
-            // Hair
-            drawCircle(hairColor, radius = 13f * scale, center = headCenter)
-            // Face
-            drawCircle(skinColor, radius = 10f * scale, center = Offset(headCenter.x + 2f * scale, headCenter.y))
-            // Shut determined racing eye (> <)
-            drawLine(
-                Color.Black,
-                Offset(headCenter.x + 5f * scale, headCenter.y - 2f * scale),
-                Offset(headCenter.x + 9f * scale, headCenter.y),
-                strokeWidth = 2f * scale
-            )
-            drawLine(
-                Color.Black,
-                Offset(headCenter.x + 9f * scale, headCenter.y),
-                Offset(headCenter.x + 5f * scale, headCenter.y + 2f * scale),
-                strokeWidth = 2f * scale
-            )
+        // Stethoscope tube visible on chest
+        drawLine(
+            color = Color(0xFFB0BEC5),
+            start = Offset(slideCenter.x - 4f * scale, slideCenter.y - 6f * scale),
+            end = Offset(slideCenter.x + 8f * scale, slideCenter.y - 4f * scale),
+            strokeWidth = 2.5f * scale,
+            cap = StrokeCap.Round
+        )
 
-            // 3. Tucked Arms (Hugging knees tightly)
-            drawLine(
-                color = scrubTeal,
-                start = Offset(rollCenter.x - 4f * scale, rollCenter.y - 12f * scale),
-                end = Offset(rollCenter.x + 4f * scale, rollCenter.y + 10f * scale),
-                strokeWidth = 7f * scale,
-                cap = StrokeCap.Round
-            )
-            drawCircle(skinColor, radius = 4f * scale, center = Offset(rollCenter.x + 4f * scale, rollCenter.y + 10f * scale))
+        // 3. Lowered Head & Hair (Facing forward, tucked close to asphalt)
+        val headCenter = Offset(slideCenter.x + 18f * scale, slideCenter.y - 4f * scale)
+        val headRadius = 11f * scale
+        // Hair
+        drawCircle(hairColor, radius = headRadius * 1.15f, center = Offset(headCenter.x - 2f * scale, headCenter.y - 2f * scale))
+        // Face
+        drawCircle(skinColor, radius = headRadius, center = headCenter)
 
-            // 4. Tucked Legs & White Sneakers
-            drawLine(
-                color = scrubPant,
-                start = Offset(rollCenter.x - 8f * scale, rollCenter.y + 4f * scale),
-                end = Offset(rollCenter.x - 2f * scale, rollCenter.y + 14f * scale),
-                strokeWidth = 8f * scale,
-                cap = StrokeCap.Round
-            )
-            // Curled Sneaker
-            drawRoundRect(
-                color = shoeWhite,
-                topLeft = Offset(rollCenter.x - 8f * scale, rollCenter.y + 10f * scale),
-                size = Size(14f * scale, 8f * scale),
-                cornerRadius = CornerRadius(3f * scale, 3f * scale)
-            )
-            drawLine(
-                shoeSole,
-                Offset(rollCenter.x - 8f * scale, rollCenter.y + 18f * scale),
-                Offset(rollCenter.x + 4f * scale, rollCenter.y + 18f * scale),
-                strokeWidth = 2.5f * scale
-            )
-        }
+        // Focused racing eyes (> <)
+        drawLine(
+            Color.Black,
+            Offset(headCenter.x + 3f * scale, headCenter.y - 3f * scale),
+            Offset(headCenter.x + 7f * scale, headCenter.y - 1f * scale),
+            strokeWidth = 2f * scale
+        )
+        drawLine(
+            Color.Black,
+            Offset(headCenter.x + 7f * scale, headCenter.y - 1f * scale),
+            Offset(headCenter.x + 3f * scale, headCenter.y + 1f * scale),
+            strokeWidth = 2f * scale
+        )
+
+        // 4. Arms Reaching Forward Low (Sliding posture)
+        drawLine(
+            color = scrubTeal,
+            start = Offset(slideCenter.x + 4f * scale, slideCenter.y - 2f * scale),
+            end = Offset(slideCenter.x + 28f * scale, slideCenter.y + 6f * scale),
+            strokeWidth = 6.5f * scale,
+            cap = StrokeCap.Round
+        )
+        drawCircle(skinColor, radius = 4f * scale, center = Offset(slideCenter.x + 28f * scale, slideCenter.y + 6f * scale))
     } else {
-        // ==========================================
+        // =========================================================================
         // UPRIGHT RUNNING / JUMPING
-        // ==========================================
+        // =========================================================================
         val headCenter = Offset(center.x, center.y - 78f * scale)
         val torsoTop = center.y - 48f * scale
 
@@ -1376,7 +1383,7 @@ fun DrawScope.drawAlexPlayerCharacter(
         drawRect(Color.White, Offset(center.x - 14f * scale, torsoTop + 16f * scale), Size(9f * scale, 12f * scale))
         drawCircle(Color(0xFF0288D1), radius = 2f * scale, center = Offset(center.x - 9.5f * scale, torsoTop + 20f * scale))
 
-        // 3. ARMS & HANDS (Swinging animation frames 0..3)
+        // 3. ARMS & HANDS
         val armSwing = (when {
             isJumping -> -24f
             else -> when (frame) {
@@ -1407,7 +1414,7 @@ fun DrawScope.drawAlexPlayerCharacter(
         )
         drawCircle(skinColor, radius = 5f * scale, center = Offset(center.x + 32f * scale - armSwing, torsoTop + 32f * scale))
 
-        // 4. LEGS & SNEAKERS (Striding animation frames 0..3)
+        // 4. LEGS & SNEAKERS
         val torsoBottom = torsoTop + torsoHeight
         val legSpread = (when {
             isJumping -> -14f
