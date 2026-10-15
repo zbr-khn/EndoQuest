@@ -793,6 +793,45 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         currentRctStageIndex = 0
     }
 
+    // =========================================================================
+    // LEVEL SKIP ACTIONS (Consistent progression and milestone balances)
+    // =========================================================================
+    fun skipRunnerRound() {
+        val minR1Money = 1500
+        val finalMoney = maxOf(progress.moneyCollected, minR1Money)
+        progress = progress.copy(
+            moneyCollected = finalMoney,
+            round1TotalMoney = finalMoney,
+            currentRound = 2
+        )
+        isRound1Complete = true
+        soundManager.playQuizSuccess()
+    }
+
+    fun skipMazeRound() {
+        completeRound2()
+    }
+
+    fun skipZombieRound() {
+        isRound3Complete = true
+        currentRctStageIndex = 0
+        progress = progress.copy(
+            moneyCollected = 5000,
+            currentRound = 4
+        )
+        soundManager.playQuizSuccess()
+    }
+
+    fun skipRctStages() {
+        currentRctStageIndex = rctStages.size - 1
+        progress = progress.copy(
+            rctStagesCompleted = rctStages.size,
+            rctQuizAccuracy = 1.0f,
+            moneyCollected = 5000
+        )
+        soundManager.playQuizSuccess()
+    }
+
     override fun onCleared() {
         super.onCleared()
         soundManager.release()

@@ -2,6 +2,7 @@ package com.example.endoquest.ui.screens
 
 import android.graphics.Paint
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -189,6 +190,24 @@ fun MazeScreen(
                                     color = Color(0xFF00E5FF)
                                 )
                             }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Button(
+                                onClick = {
+                                    viewModel.skipMazeRound()
+                                    onProceedToZombie()
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFFFD54F).copy(alpha = 0.2f),
+                                    contentColor = Color(0xFFFFD54F)
+                                ),
+                                border = BorderStroke(1.dp, Color(0xFFFFD54F).copy(alpha = 0.5f)),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("Skip ⏭️", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
                             IconButton(
                                 onClick = { viewModel.toggleAudioMute() },
                                 modifier = Modifier

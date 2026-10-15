@@ -92,7 +92,7 @@ class MainActivity : ComponentActivity() {
                             ZombieScreen(
                                 viewModel = gameViewModel,
                                 onProceedToClinic = {
-                                    navController.navigate(Screen.RctIntro.route) {
+                                    navController.navigate(Screen.RctStage.route) {
                                         popUpTo(Screen.ZombieChallenge.route) { inclusive = true }
                                     }
                                 },

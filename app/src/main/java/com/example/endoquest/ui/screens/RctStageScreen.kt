@@ -2,6 +2,7 @@ package com.example.endoquest.ui.screens
 
 import android.graphics.Paint
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -50,6 +51,35 @@ fun RctStageScreen(
 
     // Interactive procedure simulation slider (0.0 to 1.0)
     var procedureSliderProgress by remember(currentIndex) { mutableStateOf(0f) }
+    var isAutoSimulating by remember(currentIndex) { mutableStateOf(true) }
+
+    // Live continuous animation phase (loops at 60fps for high-speed bur vibration, shimmering mist, rising effervescence)
+    val infiniteTransition = rememberInfiniteTransition(label = "rct_live_animation")
+    val animationPhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "animPhase"
+    )
+
+    // Smooth auto-simulation of the clinical step immediately upon level entry or Auto-Play button
+    LaunchedEffect(currentIndex, isAutoSimulating) {
+        if (isAutoSimulating && procedureSliderProgress < 1f) {
+            val animatable = Animatable(procedureSliderProgress)
+            val durationMs = ((1f - procedureSliderProgress) * 2500).toInt().coerceAtLeast(100)
+            animatable.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = durationMs, easing = LinearEasing)
+            ) {
+                procedureSliderProgress = this.value
+            }
+            isAutoSimulating = false
+            viewModel.soundManager.playQuizSuccess()
+        }
+    }
 
     Surface(
         modifier = Modifier
@@ -85,7 +115,27 @@ fun RctStageScreen(
                         color = Color(0xFF00E5FF)
                     )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = {
+                                viewModel.skipRctStages()
+                                onCompleteAllStages()
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFFFD54F).copy(alpha = 0.2f),
+                                contentColor = Color(0xFFFFD54F)
+                            ),
+                            border = BorderStroke(1.dp, Color(0xFFFFD54F).copy(alpha = 0.5f)),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("Skip ⏭️", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+
                         stages.forEachIndexed { idx, st ->
                             Box(
                                 modifier = Modifier
@@ -197,7 +247,8 @@ fun RctStageScreen(
                             drawRctProcedureSimulation(
                                 stageNumber = stage.stageNumber,
                                 progress = procedureSliderProgress,
-                                size = size
+                                size = size,
+                                animPhase = animationPhase
                             )
                         }
                     }
@@ -257,21 +308,46 @@ fun RctStageScreen(
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("Procedure Progress", style = MaterialTheme.typography.labelMedium, color = Color.White)
-                            Text(
-                                "${(procedureSliderProgress * 100).toInt()}%",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                color = if (procedureSliderProgress >= 0.99f) Color(0xFF00E676) else Color(0xFFFFD54F)
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Button(
+                                    onClick = {
+                                        if (procedureSliderProgress >= 0.99f) {
+                                            procedureSliderProgress = 0f
+                                        }
+                                        isAutoSimulating = true
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF00E5FF).copy(alpha = 0.2f),
+                                        contentColor = Color(0xFF00E5FF)
+                                    ),
+                                    border = BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.6f)),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(26.dp)
+                                ) {
+                                    Text("Auto-Play ▶️", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "${(procedureSliderProgress * 100).toInt()}%",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = if (procedureSliderProgress >= 0.99f) Color(0xFF00E676) else Color(0xFFFFD54F)
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(6.dp))
 
                         Slider(
                             value = procedureSliderProgress,
-                            onValueChange = { procedureSliderProgress = it },
+                            onValueChange = {
+                                isAutoSimulating = false
+                                procedureSliderProgress = it
+                            },
                             valueRange = 0f..1f,
                             modifier = Modifier.fillMaxWidth(),
                             colors = SliderDefaults.colors(
@@ -285,7 +361,7 @@ fun RctStageScreen(
                             text = if (procedureSliderProgress >= 0.99f)
                                 "✨ Step Completed 100%! Ready to advance."
                             else
-                                "👉 Slide to 100% to perform the clinical step",
+                                "👉 Slide or Auto-Play to perform the clinical step",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (procedureSliderProgress >= 0.99f) Color(0xFF00E676) else Color.Gray
                         )
@@ -301,6 +377,8 @@ fun RctStageScreen(
                     val hasMore = viewModel.advanceRctStage()
                     if (!hasMore) {
                         onCompleteAllStages()
+                    } else {
+                        isAutoSimulating = true
                     }
                 },
                 enabled = procedureSliderProgress >= 0.99f,
@@ -343,7 +421,8 @@ fun RctStageScreen(
 fun DrawScope.drawRctProcedureSimulation(
     stageNumber: Int,
     progress: Float,
-    size: Size
+    size: Size,
+    animPhase: Float = 0f
 ) {
     val w = size.width
     val h = size.height
@@ -528,10 +607,11 @@ fun DrawScope.drawRctProcedureSimulation(
                     cornerRadius = CornerRadius(6f * scale, 6f * scale)
                 )
 
-                // Effervescent NaOCl saponification micro-bubbles
+                // Effervescent NaOCl saponification micro-bubbles (animated rising)
                 for (b in 0..14) {
-                    val bx = cx - 9f * scale + ((b * 11f * scale) % (18f * scale))
-                    val by = pulpTop + 6f * scale + ((b * 13f * scale) % max(1f, dissolvedH))
+                    val bx = cx - 9f * scale + ((b * 11f * scale + sin(animPhase * 2f * PI.toFloat() + b) * 3f) % (18f * scale))
+                    val bubbleCycle = (b * 16f * scale + animPhase * 110f * scale) % max(1f, dissolvedH)
+                    val by = pulpTop + dissolvedH - bubbleCycle
                     val br = (1.5f + (b % 3) * 1.2f) * scale
                     drawCircle(
                         color = Color(0xFFE0F7FA),
@@ -610,7 +690,8 @@ fun DrawScope.drawRctProcedureSimulation(
     // 5. CLINICAL INSTRUMENTATION & DYNAMIC TREATMENT ACTIONS
     when (stageNumber) {
         1 -> {
-            // Stage 1: High-Speed Turbine Handpiece & Diamond Access Bur
+            // Stage 1: High-Speed Turbine Handpiece & Diamond Access Bur with live vibration
+            val vibX = sin(animPhase * 2f * PI.toFloat() * 12f) * 1.2f * scale
             val burY = crownTop - 42f * scale + progress * (52f * scale)
 
             // Contra-Angle Handpiece Head (Satin chrome finish)
@@ -618,7 +699,7 @@ fun DrawScope.drawRctProcedureSimulation(
                 brush = Brush.horizontalGradient(
                     colors = listOf(Color(0xFFCFD8DC), Color(0xFFECEFF1), Color(0xFFB0BEC5))
                 ),
-                topLeft = Offset(cx - 22f * scale, burY - 38f * scale),
+                topLeft = Offset(cx + vibX - 22f * scale, burY - 38f * scale),
                 size = Size(44f * scale, 30f * scale),
                 cornerRadius = CornerRadius(6f * scale, 6f * scale)
             )
@@ -626,7 +707,7 @@ fun DrawScope.drawRctProcedureSimulation(
             // Push-button chuck on rear of head
             drawRoundRect(
                 color = Color(0xFF78909C),
-                topLeft = Offset(cx - 10f * scale, burY - 45f * scale),
+                topLeft = Offset(cx + vibX - 10f * scale, burY - 45f * scale),
                 size = Size(20f * scale, 7f * scale),
                 cornerRadius = CornerRadius(3f * scale, 3f * scale)
             )
@@ -634,28 +715,29 @@ fun DrawScope.drawRctProcedureSimulation(
             // Diamond Bur Friction-Grip Shank
             drawRect(
                 color = Color(0xFFECEFF1),
-                topLeft = Offset(cx - 2.5f * scale, burY - 8f * scale),
+                topLeft = Offset(cx + vibX - 2.5f * scale, burY - 8f * scale),
                 size = Size(5f * scale, 18f * scale)
             )
 
-            // Tapered Diamond Bur Head with abrasive texture
+            // Tapered Diamond Bur Head with abrasive texture and rotational shimmer
             drawOval(
                 brush = Brush.radialGradient(
                     colors = listOf(Color(0xFF80DEEA), Color(0xFF00B0FF), Color(0xFF0091EA)),
-                    center = Offset(cx - 1f, burY + 14f * scale),
+                    center = Offset(cx + vibX - 1f, burY + 14f * scale),
                     radius = 5f * scale
                 ),
-                topLeft = Offset(cx - 4.5f * scale, burY + 8f * scale),
+                topLeft = Offset(cx + vibX - 4.5f * scale, burY + 8f * scale),
                 size = Size(9f * scale, 14f * scale)
             )
 
-            // Water cooling spray mist
-            if (progress > 0.15f) {
-                for (w in 0..4) {
-                    val angle = (w * 40f) * PI.toFloat() / 180f
-                    val mx = cx + cos(angle) * (8f * scale)
-                    val my = burY + 12f * scale + sin(angle) * (6f * scale)
-                    drawCircle(Color(0xFF80DEEA).copy(alpha = 0.65f), radius = 2f * scale, center = Offset(mx, my))
+            // Water cooling spray mist (active particles)
+            if (progress > 0.05f) {
+                for (w in 0..7) {
+                    val angle = (w * 45f) * PI.toFloat() / 180f + sin(animPhase * 2f * PI.toFloat() + w) * 0.2f
+                    val dist = (8f + (sin(animPhase * 4f * PI.toFloat() + w) * 0.5f + 0.5f) * 7f) * scale
+                    val mx = cx + vibX + cos(angle) * dist
+                    val my = burY + 12f * scale + sin(angle) * (dist * 0.7f)
+                    drawCircle(Color(0xFF80DEEA).copy(alpha = 0.75f), radius = (1.5f + (w % 2)) * scale, center = Offset(mx, my))
                 }
             }
         }
@@ -664,8 +746,9 @@ fun DrawScope.drawRctProcedureSimulation(
             // Stage 2: Dual Visualization (Reference Video NiTi File + Side-Vented Needle)
 
             // A. NiTi Hand File (#30 ISO Blue Handle, Yellow Rubber Stop, Fluted Shaft)
+            val fileOsc = sin(animPhase * 2f * PI.toFloat() * 3f) * 1.2f * scale
             val fileX = cx - 28f * scale
-            val fileY = crownTop - 46f * scale + progress * (36f * scale)
+            val fileY = crownTop - 46f * scale + progress * (36f * scale) + fileOsc
 
             // ISO Blue contoured handle
             drawRoundRect(
@@ -750,21 +833,27 @@ fun DrawScope.drawRctProcedureSimulation(
             )
 
             // Dynamic Lateral Reflux Jets (Twin streams discharging coronally against dentin walls)
-            if (progress > 0.35f) {
+            if (progress > 0.25f) {
+                val jetOsc = sin(animPhase * 2f * PI.toFloat() * 5f) * 2.2f * scale
                 drawLine(
                     color = Color(0xFF00E5FF),
                     start = Offset(cx - 2f * scale, ventY),
-                    end = Offset(cx - 13f * scale, ventY - 14f * scale),
+                    end = Offset(cx - (13f * scale + jetOsc), ventY - (14f * scale + jetOsc)),
                     strokeWidth = 2.5f * scale,
                     cap = StrokeCap.Round
                 )
                 drawLine(
                     color = Color(0xFF00E5FF),
                     start = Offset(cx + 2f * scale, ventY),
-                    end = Offset(cx + 13f * scale, ventY - 14f * scale),
+                    end = Offset(cx + (13f * scale + jetOsc), ventY - (14f * scale + jetOsc)),
                     strokeWidth = 2.5f * scale,
                     cap = StrokeCap.Round
                 )
+                for (d in 0..3) {
+                    val dtDrop = (animPhase * 60f + d * 15f) % 20f
+                    drawCircle(Color(0xFF00E5FF).copy(alpha = 0.85f), radius = 1.5f * scale, center = Offset(cx - 4f * scale - dtDrop * 0.7f, ventY - dtDrop))
+                    drawCircle(Color(0xFF00E5FF).copy(alpha = 0.85f), radius = 1.5f * scale, center = Offset(cx + 4f * scale + dtDrop * 0.7f, ventY - dtDrop))
+                }
             }
 
             // Electronic Apex Locator (EAL) Mini Medical HUD (Top-Left)
