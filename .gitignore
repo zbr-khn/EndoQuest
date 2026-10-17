@@ -16,3 +16,26 @@ local.properties
 .idea/
 *.pyc
 __pycache__/
+
+# Keystores & Signing Credentials
+*.jks
+*.keystore
+*.p12
+*.key
+signing.properties
+google-services.json
+
+# Environment Variables & Local Secrets
+.env
+.env.*
+*.secret
+*.local
+
+# Output Binaries & Archives
+*.apk
+*.aab
+
+# OS & Temp
+Thumbs.db
+ehthumbs.db
+*.tmp

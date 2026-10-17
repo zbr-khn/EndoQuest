@@ -21,9 +21,13 @@ android {
 
     buildTypes {
         release {
+            isDebuggable = false
             optimization {
-                enable = false
+                enable = true
             }
+        }
+        debug {
+            isDebuggable = true
         }
     }
     compileOptions {

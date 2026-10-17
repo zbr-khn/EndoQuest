@@ -273,19 +273,25 @@ class AppController {
 
     if (this.isCheckpointAnswerCorrect === true) {
       feedbackBox.className = 'feedback-card correct';
-      feedbackBox.innerHTML = `
-        <strong>✅ INSPECTION PASSED! Officer Salutes: +$50 Reward!</strong>
-        <p>${q.explanation}</p>
-      `;
+      feedbackBox.replaceChildren();
+      const strong = document.createElement('strong');
+      strong.textContent = '✅ INSPECTION PASSED! Officer Salutes: +$50 Reward!';
+      const p = document.createElement('p');
+      p.textContent = q.explanation;
+      feedbackBox.appendChild(strong);
+      feedbackBox.appendChild(p);
       feedbackBox.classList.remove('hidden');
       tryAgainBtn.classList.add('hidden');
       resumeBtn.classList.remove('hidden');
     } else if (this.isCheckpointAnswerCorrect === false) {
       feedbackBox.className = 'feedback-card wrong';
-      feedbackBox.innerHTML = `
-        <strong>❌ ROAD INSPECTION FAILED. Progression Locked!</strong>
-        <p>${q.explanation}</p>
-      `;
+      feedbackBox.replaceChildren();
+      const strong = document.createElement('strong');
+      strong.textContent = '❌ ROAD INSPECTION FAILED. Progression Locked!';
+      const p = document.createElement('p');
+      p.textContent = q.explanation;
+      feedbackBox.appendChild(strong);
+      feedbackBox.appendChild(p);
       feedbackBox.classList.remove('hidden');
       tryAgainBtn.classList.remove('hidden');
       resumeBtn.classList.add('hidden');
@@ -412,14 +418,26 @@ class AppController {
           sounds.playCorrect();
           btn.classList.add('correct');
           feedbackBox.className = 'feedback-card correct';
-          feedbackBox.innerHTML = `<strong>✅ Correct! Clinical Task Understood.</strong><p>${q.explanation}</p>`;
+          feedbackBox.replaceChildren();
+          const strong = document.createElement('strong');
+          strong.textContent = '✅ Correct! Clinical Task Understood.';
+          const p = document.createElement('p');
+          p.textContent = q.explanation;
+          feedbackBox.appendChild(strong);
+          feedbackBox.appendChild(p);
           feedbackBox.classList.remove('hidden');
           proceedBtn.disabled = false;
         } else {
           sounds.playWrong();
           btn.classList.add('wrong');
           feedbackBox.className = 'feedback-card wrong';
-          feedbackBox.innerHTML = `<strong>❌ Incorrect. Try Again!</strong><p>${q.explanation}</p>`;
+          feedbackBox.replaceChildren();
+          const strong = document.createElement('strong');
+          strong.textContent = '❌ Incorrect. Try Again!';
+          const p = document.createElement('p');
+          p.textContent = q.explanation;
+          feedbackBox.appendChild(strong);
+          feedbackBox.appendChild(p);
           feedbackBox.classList.remove('hidden');
         }
       };
